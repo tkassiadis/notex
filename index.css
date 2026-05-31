@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Scrollbar oculta nas tabs ── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Safe area iPhone (notch + home indicator) ── */
+/* env(safe-area-inset-*) é injetado pelo iOS no modo standalone */
+:root {
+  --sat: env(safe-area-inset-top,    0px);
+  --sar: env(safe-area-inset-right,  0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left,   0px);
+}
+
+/* Corpo: background escuro cobre toda a tela incluindo safe areas */
+html, body, #root {
+  min-height: 100dvh;           /* dvh: respeita barra do browser no mobile */
+  background-color: #0a0f1a;
+  overscroll-behavior: none;    /* Evita bounce scroll no iOS */
+  -webkit-tap-highlight-color: transparent; /* Remove flash azul no toque */
+}
+
+/* FAB (botão +): erguer acima do home indicator */
+.fab-safe {
+  bottom: calc(1.5rem + var(--sab));
+}
+
+/* Padding inferior do conteúdo principal: respeita home indicator */
+.pb-safe {
+  padding-bottom: calc(6rem + var(--sab));
+}
+
+/* Header: padding superior para notch */
+.pt-safe {
+  padding-top: var(--sat);
+}
+
+/* ── Inputs: previne zoom automático no iOS (fonte mín. 16px) ── */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  font-size: max(16px, 1em);
+}
+
+/* ── Scroll suave em iOS ── */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Seleção de texto: cor da marca ── */
+::selection {
+  background-color: rgba(99, 102, 241, 0.3);
+  color: white;
+}
+
+/* ── Range input: estilo consistente iOS/Android ── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 999px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.5);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
