@@ -203,8 +203,8 @@ function ItemForm({ item, onSave, onClose, disciplines }: {
         )}
         <FormField label="Status"><select value={form.status} onChange={e => set("status", e.target.value)} className={INPUT_CLS} style={INPUT_STY}>{STATUS_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></FormField>
       </div>
-      <FormField label={`Instrumento${errors.instrumento ? " — obrigatório" : ""}`}>
-        <input value={form.instrumento} onChange={e => set("instrumento", e.target.value)} className={`${INPUT_CLS} ${errors.instrumento ? errCls : ""}`} style={INPUT_STY} placeholder="Nome do instrumento" />
+      <FormField label={`${isEvento ? "Evento" : "Instrumento"}${errors.instrumento ? " — obrigatório" : ""}`}>
+        <input value={form.instrumento} onChange={e => set("instrumento", e.target.value)} className={`${INPUT_CLS} ${errors.instrumento ? errCls : ""}`} style={INPUT_STY} placeholder={isEvento ? "Nome do evento" : "Nome do instrumento"} />
       </FormField>
       <FormField label={`Disciplina${errors.disciplina ? " — obrigatório" : ""}`}>
         <div className="flex rounded-xl overflow-hidden border border-white/10 mb-2" style={{ background: "rgba(255,255,255,0.03)" }}>
