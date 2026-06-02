@@ -139,7 +139,7 @@ const INPUT_CLS = "w-full rounded-xl px-3 py-2.5 text-sm text-white border borde
 const INPUT_STY = { background: "rgba(255,255,255,0.06)" };
 
 function ItemForm({ item, onSave, onClose, disciplines }: {
-  item: Atividade | null; onSave: (form: Omit<Atividade, "id">) => void;
+  item: Atividade | null; onSave: (form: Omit<Atividade, "id">) => void | Promise<void>;
   onClose: () => void; disciplines: string[];
 }) {
   const toStr = (v: any) => (v == null ? "" : String(v).replace(".", ","));
@@ -154,15 +154,22 @@ function ItemForm({ item, onSave, onClose, disciplines }: {
     return { ...base, _pa: toStr(base.pesoAvaliacao), _pi: toStr(base.pesoInstrumento), _pm: toStr(base.pontuacaoMaxima), _p: toStr(base.pontuacao) };
   });
   const [errors, setErrors] = useState<any>({});
+  const [saving, setSaving] = useState(false);          // FIX BUG2: trava contra duplo-clique
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
   const disciplinaFinal = discMode === "existing" ? form.disciplina : newDiscName.trim();
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return;                                  // FIX BUG2: ignora cliques repetidos
     const errs: any = {};
     if (!form.instrumento.trim()) errs.instrumento = true;
     if (!disciplinaFinal) errs.disciplina = true;
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
-    onSave({ ...form, disciplina: disciplinaFinal, pesoAvaliacao: parseDecimal(form._pa) ?? 0, pesoInstrumento: parseDecimal(form._pi) ?? 0, pontuacaoMaxima: parseDecimal(form._pm), pontuacao: parseDecimal(form._p) });
+    setSaving(true);
+    try {
+      await onSave({ ...form, disciplina: disciplinaFinal, pesoAvaliacao: parseDecimal(form._pa) ?? 0, pesoInstrumento: parseDecimal(form._pi) ?? 0, pontuacaoMaxima: parseDecimal(form._pm), pontuacao: parseDecimal(form._p) });
+    } finally {
+      setSaving(false);
+    }
   };
   const errCls = "border-red-500/60";
   return (
@@ -213,8 +220,10 @@ function ItemForm({ item, onSave, onClose, disciplines }: {
       </div>
       <FormField label="Observações"><textarea value={form.observacoes} onChange={e => set("observacoes", e.target.value)} rows={2} className={INPUT_CLS} style={INPUT_STY} placeholder="Anotações opcionais..." /></FormField>
       <div className="flex gap-2 mt-2">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl text-sm font-semibold text-slate-400 border border-white/10">Cancelar</button>
-        <button onClick={handleSave} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>Salvar</button>
+        <button onClick={onClose} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-slate-400 border border-white/10 disabled:opacity-40">Cancelar</button>
+        <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
+          {saving ? "Salvando..." : "Salvar"}
+        </button>
       </div>
     </div>
   );
@@ -347,6 +356,15 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
     s.items.forEach(r => { const contrib = r.pesoAvaliacao * r.pesoInstrumento * 10; if (r.pontuacao != null && r.pontuacaoMaxima) { obtidos += ((r.pontuacao / r.pontuacaoMaxima)) * contrib; } else { futuros += contrib; } });
     return { fullName: s.disciplina, obtidos: Math.round(obtidos * 100) / 100, futuros: Math.round(futuros * 100) / 100, color: s.color };
   }), [stats]);
+  const pendingByStatus = useMemo(() => {
+    const groups = [
+      { status: "Não iniciado", color: "#64748b" },
+      { status: "Estudo inicial", color: "#f59e0b" },
+      { status: "Estudo médio", color: "#f97316" },
+      { status: "Estudo avançado", color: "#06b6d4" },
+    ];
+    return groups.map(g => ({ ...g, items: items.filter(it => it.status === g.status && it.pontuacao == null) })).filter(g => g.items.length > 0);
+  }, [items]);
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-2 gap-3">
@@ -386,6 +404,20 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
           <div className="flex items-center gap-1.5"><div className="w-10 h-3 rounded-sm" style={{ background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.1)" }} /><span className="text-xs text-slate-400">Disponíveis</span></div>
           <div className="flex items-center gap-1.5 ml-auto"><div className="w-1 h-3" style={{ background: "#f59e0b" }} /><span className="text-xs text-amber-400">{meta} = meta</span></div>
         </div>
+        {expandedChart === "grades" && (
+          <div className="mt-4 flex flex-col gap-3 border-t border-white/8 pt-4">
+            {pontosChartData.map((d, i) => { const s = stats[i]; return (
+              <div key={d.fullName}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-slate-300 font-semibold truncate pr-2">{d.fullName}</span>
+                  <div className="flex items-center gap-3 shrink-0"><span className="text-xs text-slate-500">disponível: +{d.futuros.toFixed(2)}</span><span className="text-sm font-bold" style={{ color: d.obtidos >= meta ? "#10b981" : d.obtidos >= meta - 2 ? "#f59e0b" : "#ef4444" }}>{d.obtidos.toFixed(2)}/10</span></div>
+                </div>
+                {s.notaNecessaria != null && s.notaNecessaria > 0 && !s.aprovacaoGarantida && (<p className="text-xs text-slate-500">Precisa de <span className="font-semibold" style={{ color: s.aprovacaoImpossivel ? "#ef4444" : "#f59e0b" }}>{s.aprovacaoImpossivel ? "nota impossível" : s.notaNecessaria.toFixed(2)}</span> nas próximas para fechar {meta}</p>)}
+                {s.aprovacaoGarantida && <p className="text-xs text-emerald-500">✓ Meta {meta} já garantida</p>}
+              </div>
+            ); })}
+          </div>
+        )}
       </div>
       <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
         <ChartHeader label="Status dos Estudos" chartKey="status" expandedChart={expandedChart} setExpandedChart={setExpandedChart} />
@@ -393,6 +425,17 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
           <ResponsiveContainer width={120} height={120}><PieChart><Pie data={statusPieData} dataKey="value" innerRadius={35} outerRadius={55} paddingAngle={3}>{statusPieData.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie></PieChart></ResponsiveContainer>
           <div className="flex flex-col gap-2.5 flex-1">{statusPieData.map(d => (<div key={d.name} className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} /><span className="text-xs text-slate-400">{d.name}</span></div><div className="flex items-center gap-2"><span className="text-xs text-slate-500">{statusPieTotal > 0 ? Math.round(d.value / statusPieTotal * 100) : 0}%</span><span className="text-sm font-bold text-white w-5 text-right">{d.value}</span></div></div>))}</div>
         </div>
+        {expandedChart === "status" && (
+          <div className="mt-4 flex flex-col gap-4 border-t border-white/8 pt-4">
+            <p className="text-xs text-slate-500">Instrumentos pendentes por status de estudo:</p>
+            {pendingByStatus.length === 0 ? <p className="text-xs text-slate-600 italic">Nenhum instrumento pendente.</p> : pendingByStatus.map(group => (
+              <div key={group.status}>
+                <div className="flex items-center gap-2 mb-2"><div className="w-2 h-2 rounded-full shrink-0" style={{ background: group.color }} /><span className="text-xs font-bold text-white">{group.status}</span><span className="text-xs text-slate-500">({group.items.length})</span></div>
+                <div className="flex flex-col gap-1 pl-4">{group.items.map(it => (<div key={it.id} className="flex items-center justify-between py-1 border-b border-white/5"><div className="min-w-0 flex-1"><p className="text-xs text-slate-300 truncate">{it.instrumento}</p><p className="text-xs text-slate-600">{it.disciplina} · {it.avaliacao}</p></div><div className="shrink-0 ml-2">{it.daysRemaining != null && <span className="text-xs" style={{ color: it.daysRemaining < 0 ? "#f59e0b" : it.daysRemaining <= 7 ? "#f59e0b" : "#64748b" }}>{it.daysRemaining < 0 ? `${Math.abs(it.daysRemaining)}d atrás` : `em ${it.daysRemaining}d`}</span>}</div></div>))}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       {upcomingAll.length > 0 && (
         <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
@@ -408,7 +451,7 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
       )}
       <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
         <ChartHeader label="Ranking de Disciplinas" chartKey="ranking" expandedChart={expandedChart} setExpandedChart={setExpandedChart} />
-        <div className="flex flex-col gap-3">{[...stats].sort((a, b) => (b.mediaAtual ?? -1) - (a.mediaAtual ?? -1)).map((s, i) => (<div key={s.disciplina}><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><span className="text-xs text-slate-600 w-4">#{i+1}</span><span className="text-sm text-white">{s.disciplina}</span></div><div className="flex items-center gap-2"><span className="text-sm font-bold" style={{ color: s.color }}>{s.mediaAtual?.toFixed(2) ?? "—"}</span>{s.emRisco && <Badge color="red">Risco</Badge>}</div></div><ProgressBar value={s.mediaAtual ?? 0} max={10} color={s.color} height={3} /></div>))}</div>
+        <div className="flex flex-col gap-3">{[...stats].sort((a, b) => (b.mediaAtual ?? -1) - (a.mediaAtual ?? -1)).map((s, i) => (<div key={s.disciplina}><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><span className="text-xs text-slate-600 w-4">#{i+1}</span><span className="text-sm text-white">{s.disciplina}</span></div><div className="flex items-center gap-2"><span className="text-sm font-bold" style={{ color: s.color }}>{s.mediaAtual?.toFixed(2) ?? "—"}</span>{s.emRisco && <Badge color="red">Risco</Badge>}</div></div><ProgressBar value={s.mediaAtual ?? 0} max={10} color={s.color} height={3} />{expandedChart === "ranking" && (<div className="mt-2 flex flex-col gap-1 pl-5 border-l-2" style={{ borderColor: s.color + "44" }}>{s.items.map(it => { const n = calcNota(it.pontuacao, it.pontuacaoMaxima); return (<div key={it.id} className="flex items-center justify-between py-0.5"><div className="flex items-center gap-2 min-w-0"><div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_COLORS[it.status] }} /><span className="text-xs text-slate-400 truncate">{it.instrumento}</span><span className="text-xs text-slate-600 shrink-0">{it.avaliacao}</span></div><span className="text-xs font-semibold shrink-0 ml-2" style={{ color: n == null ? "#64748b" : n >= meta ? "#10b981" : n >= meta - 2 ? "#f59e0b" : "#ef4444" }}>{n != null ? n.toFixed(1) : "—"}</span></div>); })}</div>)}</div>))}</div>
       </div>
     </div>
   );
@@ -643,6 +686,7 @@ export default function App() {
   const disciplines = useMemo(() => [...new Set(items.map(it => it.disciplina))], [items]);
 
   const handleSave = useCallback(async (form: Omit<Atividade, "id">) => {
+    // Erros sobem para o ItemForm (que libera o botão); modal só fecha no sucesso
     if (editingItem) await updateAtividade({ ...form, id: editingItem.id });
     else await addAtividade(form);
     setModal(null); setEditingItem(null);
