@@ -308,74 +308,10 @@ function ExportPanel({ items, onClose }: { items: Atividade[]; onClose: () => vo
   );
 }
 
-// ─── SIMULATION PANEL ─────────────────────────────────────────
-function SimulationPanel({ stats, meta, onClose }: { stats: DisciplinaStats[]; meta: number; onClose: () => void }) {
-  const [simScores, setSimScores] = useState<Record<string, number>>({});
-  const [openDisc, setOpenDisc] = useState<string | null>(stats[0]?.disciplina ?? null);
-  const simStats = useMemo(() => stats.map(s => {
-    let ws = 0, tw = 0;
-    s.items.forEach(r => { const w = r.pesoAvaliacao * r.pesoInstrumento; tw += w; let n = calcNota(r.pontuacao, r.pontuacaoMaxima); if (n == null && simScores[r.id] != null) n = simScores[r.id]; if (n != null) ws += n * w; });
-    const m = tw > 0 ? ws / tw : null;
-    return { ...s, mediaSimulada: m != null ? Math.round(m * 100) / 100 : null };
-  }), [stats, simScores]);
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-slate-400">Simule notas hipotéticas. <span className="text-amber-400">Dados reais não serão alterados.</span></p>
-      {simStats.map(s => {
-        const pending = s.items.filter(it => it.pontuacao == null);
-        const isOpen = openDisc === s.disciplina;
-        const mc = s.mediaSimulada == null ? "#64748b" : s.mediaSimulada >= meta ? "#10b981" : s.mediaSimulada >= meta - 2 ? "#f59e0b" : "#ef4444";
-        return (
-          <div key={s.disciplina} className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
-            <button onClick={() => setOpenDisc(p => p === s.disciplina ? null : s.disciplina)} className="w-full flex items-center justify-between px-4 py-3 text-left">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
-                <span className="text-sm font-bold text-white truncate">{s.disciplina}</span>
-                {pending.length > 0 && <span className="text-xs text-slate-500 shrink-0">{pending.length} pend.</span>}
-              </div>
-              <div className="flex items-center gap-2 shrink-0 ml-2">
-                <div className="text-right">
-                  {s.mediaAtual != null && <p className="text-xs text-slate-500">Atual: {s.mediaAtual.toFixed(2)}</p>}
-                  <p className="text-sm font-bold" style={{ color: mc }}>{s.mediaSimulada != null ? `→ ${s.mediaSimulada.toFixed(2)}` : "—"}</p>
-                </div>
-                <Badge color={s.mediaSimulada == null ? "slate" : s.mediaSimulada >= meta ? "green" : "red"}>{s.mediaSimulada == null ? "—" : s.mediaSimulada >= meta ? "Aprovado" : "Reprovado"}</Badge>
-                <span className="text-slate-500 text-xs">{isOpen ? "▲" : "▼"}</span>
-              </div>
-            </button>
-            {isOpen && (
-              <div className="border-t border-white/10 px-4 pb-4 pt-3 flex flex-col gap-3">
-                {pending.length === 0 ? <p className="text-xs text-slate-500 italic">Todos os instrumentos já possuem nota lançada.</p> : pending.map(it => (
-                  <div key={it.id} className="rounded-xl p-3 border border-white/10" style={{ background: "rgba(255,255,255,0.04)" }}>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div><p className="text-sm font-semibold text-white">{it.instrumento}</p><p className="text-xs text-slate-500">{it.avaliacao} · peso {(it.pesoAvaliacao * it.pesoInstrumento * 100).toFixed(0)}%</p></div>
-                      <span className="text-sm font-bold text-indigo-400 shrink-0">{simScores[it.id] != null ? simScores[it.id] : "—"}</span>
-                    </div>
-                    <input type="range" min="0" max="10" step="0.5" value={simScores[it.id] ?? 5} onChange={e => setSimScores(sc => ({ ...sc, [it.id]: parseFloat(e.target.value) }))} className="w-full" />
-                    <div className="flex justify-between text-xs text-slate-600 mt-0.5"><span>0</span><span>5</span><span>10</span></div>
-                  </div>
-                ))}
-                <div className="rounded-xl p-3 border border-white/10 flex items-center justify-between" style={{ background: "rgba(99,102,241,0.07)" }}>
-                  <span className="text-xs text-slate-400">Média simulada</span>
-                  <div className="flex items-center gap-2">
-                    {s.mediaAtual != null && <span className="text-xs text-slate-500">{s.mediaAtual.toFixed(2)} atual</span>}
-                    <span className="text-sm font-bold" style={{ color: mc }}>{s.mediaSimulada != null ? s.mediaSimulada.toFixed(2) : "—"}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
-      <button onClick={onClose} className="w-full py-3 rounded-xl text-sm font-semibold text-white" style={{ background: "rgba(255,255,255,0.08)" }}>Fechar</button>
-    </div>
-  );
-}
-
 // ─── DASHBOARD TAB ────────────────────────────────────────────
 function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; stats: DisciplinaStats[]; meta: number }) {
   const [expandedChart, setExpandedChart] = useState<string | null>(null);
   const upcomingAll = useMemo(() => items.filter(it => it.daysRemaining != null && it.daysRemaining >= 0 && it.daysRemaining <= 30).sort((a, b) => (a.daysRemaining ?? 0) - (b.daysRemaining ?? 0)), [items]);
-  const aguardandoCorrecaoAll = useMemo(() => items.filter(it => it.daysRemaining != null && it.daysRemaining < 0 && it.pontuacao == null), [items]);
   const { totalFinished, totalInProgress, totalPending } = useMemo(() => ({ totalFinished: items.filter(it => it.status === "Finalizado").length, totalInProgress: items.filter(it => ["Estudo inicial","Estudo médio","Estudo avançado"].includes(it.status)).length, totalPending: items.filter(it => it.status === "Não iniciado").length }), [items]);
   const avgGrade = useMemo(() => { const graded = stats.filter(s => s.mediaAtual != null); return graded.length ? (graded.reduce((a, s) => a + (s.mediaAtual ?? 0), 0) / graded.length).toFixed(2) : null; }, [stats]);
   const statusPieData = useMemo(() => [{ name: "Finalizado", value: totalFinished, color: "#10b981" }, { name: "Em andamento", value: totalInProgress, color: "#06b6d4" }, { name: "Pendente", value: totalPending, color: "#64748b" }].filter(d => d.value > 0), [totalFinished, totalInProgress, totalPending]);
@@ -472,12 +408,6 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
           <div className="flex flex-col gap-2">{upcomingAll.slice(0, 6).map(it => (<div key={it.id} className="flex items-center gap-3 py-2 border-b border-white/5"><div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: (it.daysRemaining ?? 99) <= 3 ? "rgba(239,68,68,0.15)" : (it.daysRemaining ?? 99) <= 7 ? "rgba(245,158,11,0.15)" : "rgba(99,102,241,0.15)" }}><span className={`text-xs font-bold ${(it.daysRemaining ?? 99) <= 3 ? "text-red-400" : (it.daysRemaining ?? 99) <= 7 ? "text-amber-400" : "text-indigo-400"}`}>{it.daysRemaining}d</span></div><div className="flex-1 min-w-0"><p className="text-sm font-medium text-white truncate">{it.instrumento}</p><p className="text-xs text-slate-500">{it.disciplina} · {it.avaliacao}</p></div><StatusBadge status={it.status} /></div>))}</div>
         </div>
       )}
-      {aguardandoCorrecaoAll.length > 0 && (
-        <div className="rounded-2xl border border-amber-500/20 overflow-hidden" style={{ background: "rgba(245,158,11,0.06)" }}>
-          <div className="flex items-center gap-2 px-4 py-3"><span>⏳</span><span className="text-xs text-amber-400 uppercase tracking-widest font-semibold">Aguardando Correção</span><Badge color="yellow">{aguardandoCorrecaoAll.length}</Badge></div>
-          <div className="border-t border-amber-500/15 px-4 pb-4 pt-3 flex flex-col gap-1">{aguardandoCorrecaoAll.map(it => (<div key={it.id} className="flex items-center justify-between py-1"><div className="min-w-0"><span className="text-sm text-white block truncate">{it.instrumento}</span><span className="text-xs text-slate-500">{it.disciplina} · {it.avaliacao}</span></div><Badge color="yellow">{Math.abs(it.daysRemaining ?? 0)}d atrás</Badge></div>))}</div>
-        </div>
-      )}
       <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
         <ChartHeader label="Ranking de Disciplinas" chartKey="ranking" expandedChart={expandedChart} setExpandedChart={setExpandedChart} />
         <div className="flex flex-col gap-3">{[...stats].sort((a, b) => (b.mediaAtual ?? -1) - (a.mediaAtual ?? -1)).map((s, i) => (<div key={s.disciplina}><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><span className="text-xs text-slate-600 w-4">#{i+1}</span><span className="text-sm text-white">{s.disciplina}</span></div><div className="flex items-center gap-2"><span className="text-sm font-bold" style={{ color: s.color }}>{s.mediaAtual?.toFixed(2) ?? "—"}</span>{s.emRisco && <Badge color="red">Risco</Badge>}</div></div><ProgressBar value={s.mediaAtual ?? 0} max={10} color={s.color} height={3} />{expandedChart === "ranking" && (<div className="mt-2 flex flex-col gap-1 pl-5 border-l-2" style={{ borderColor: s.color + "44" }}>{s.items.map(it => { const n = calcNota(it.pontuacao, it.pontuacaoMaxima); return (<div key={it.id} className="flex items-center justify-between py-0.5"><div className="flex items-center gap-2 min-w-0"><div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_COLORS[it.status] }} /><span className="text-xs text-slate-400 truncate">{it.instrumento}</span><span className="text-xs text-slate-600 shrink-0">{it.avaliacao}</span></div><span className="text-xs font-semibold shrink-0 ml-2" style={{ color: n == null ? "#64748b" : n >= meta ? "#10b981" : n >= meta - 2 ? "#f59e0b" : "#ef4444" }}>{n != null ? n.toFixed(1) : "—"}</span></div>); })}</div>)}</div>))}</div>
@@ -487,7 +417,7 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
 }
 
 // ─── DISCIPLINE TAB ───────────────────────────────────────────
-function DisciplineTab({ stats, meta, onEditItem, onDeleteItem }: { stats: DisciplinaStats[]; meta: number; onEditItem: (item: Atividade) => void; onDeleteItem: (id: string) => void }) {
+function DisciplineTab({ items, stats, meta, onEditItem, onDeleteItem, onQuickGrade }: { items: AtividadeEnriquecida[]; stats: DisciplinaStats[]; meta: number; onEditItem: (item: Atividade) => void; onDeleteItem: (id: string) => void; onQuickGrade?: (item: Atividade) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const disc = selected ? stats.find(s => s.disciplina === selected) : null;
   if (disc) return (
@@ -502,31 +432,68 @@ function DisciplineTab({ stats, meta, onEditItem, onDeleteItem }: { stats: Disci
         <div className="mb-2"><div className="flex items-center justify-between mb-1"><span className="text-xs text-slate-500">Progresso concluído</span><span className="text-xs text-slate-400">{disc.pesoConcluido.toFixed(1)}%</span></div><ProgressBar value={disc.pesoConcluido} max={100} color={disc.color} height={6} /></div>
         {disc.notaNecessaria != null && <div className="mt-3 p-3 rounded-xl border" style={{ background: "rgba(99,102,241,0.08)", borderColor: "rgba(99,102,241,0.2)" }}><p className="text-xs text-indigo-300">{disc.aprovacaoGarantida ? `✅ Média ${meta} já garantida!` : disc.aprovacaoImpossivel ? `❌ Média ${meta} não é mais matematicamente possível.` : `📌 Você precisa de média ${disc.notaNecessaria.toFixed(2)} nas próximas avaliações para fechar com ${meta}.`}</p></div>}
       </div>
-      <div className="flex flex-col gap-2">{disc.items.map(it => { const nota = calcNota(it.pontuacao, it.pontuacaoMaxima); return (<div key={it.id} className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}><div className="flex items-start justify-between gap-2 mb-2"><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white leading-tight">{it.instrumento}</p><div className="flex items-center gap-2 mt-1 flex-wrap"><Badge color="indigo">{it.avaliacao}</Badge>{it.subdivisao && <Badge color="slate">{it.subdivisao}</Badge>}<StatusBadge status={it.status} /></div></div><div className="flex gap-1 shrink-0"><button onClick={() => onEditItem(it)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }}>✏️</button><button onClick={() => onDeleteItem(it.id)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs text-red-400 hover:text-red-300 transition" style={{ background: "rgba(239,68,68,0.1)" }}>🗑</button></div></div><div className="grid grid-cols-3 gap-2 text-center mt-2"><div><p className="text-xs text-slate-600">Nota/10</p><p className="text-sm font-bold" style={{ color: notaColor(nota, meta) }}>{nota != null ? nota.toFixed(2) : "—"}</p></div><div><p className="text-xs text-slate-600">Peso Aval.</p><p className="text-sm font-bold text-slate-300">{(it.pesoAvaliacao * 100).toFixed(0)}%</p></div><div><p className="text-xs text-slate-600">Data</p><p className="text-xs font-semibold" style={{ color: it.daysRemaining != null && it.daysRemaining < 0 ? "#ef4444" : it.daysRemaining != null && it.daysRemaining <= 7 ? "#f59e0b" : "#94a3b8" }}>{it.daysRemaining != null && it.daysRemaining < 0 ? `${Math.abs(it.daysRemaining)}d atrás` : it.daysRemaining != null ? `${it.daysRemaining}d` : it.data || "—"}</p></div></div>{it.pontuacao != null && it.pontuacaoMaxima != null && <div className="mt-2"><ProgressBar value={it.pontuacao} max={it.pontuacaoMaxima} color={notaColor(nota, meta)} height={4} /><p className="text-xs text-slate-600 mt-1 text-right">{it.pontuacao}/{it.pontuacaoMaxima} pts</p></div>}{it.observacoes && <p className="text-xs text-slate-500 mt-2 italic">{it.observacoes}</p>}</div>); })}</div>
+      <ItemsList items={items.filter(it => it.disciplina === disc.disciplina)} stats={stats} meta={meta} onEditItem={onEditItem} onDeleteItem={onDeleteItem} onQuickGrade={onQuickGrade} title={`Itens de ${disc.disciplina}`} />
     </div>
   );
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Selecione uma disciplina</p>
+      {stats.length === 0 && <div className="rounded-2xl p-8 border border-white/5 flex flex-col items-center gap-2 text-center" style={{ background: "rgba(255,255,255,0.03)" }}><span className="text-3xl">📚</span><p className="text-sm font-semibold text-white">Nenhuma disciplina ainda</p><p className="text-xs text-slate-500">Toque em "+ Novo" para criar sua primeira disciplina ou atividade.</p></div>}
       {stats.map(s => (<button key={s.disciplina} onClick={() => setSelected(s.disciplina)} className="rounded-2xl p-5 border border-white/5 text-left w-full hover:border-white/15 transition-all" style={{ background: "rgba(255,255,255,0.04)" }}><div className="flex items-center justify-between mb-3"><div className="flex items-center gap-3"><div className="w-3 h-3 rounded-full shrink-0" style={{ background: s.color }} /><p className="text-sm font-bold text-white">{s.disciplina}</p></div><div className="flex items-center gap-2">{s.emRisco && <Badge color="red">Risco</Badge>}<span className="text-lg font-bold" style={{ color: s.color }}>{s.mediaAtual?.toFixed(2) ?? "—"}</span></div></div><ProgressBar value={s.pesoConcluido} max={100} color={s.color} height={5} /><div className="flex items-center justify-between mt-2"><span className="text-xs text-slate-500">{s.pesoConcluido.toFixed(1)}% concluído</span><div className="flex gap-2"><span className="text-xs text-emerald-400">{s.statusCounts["Finalizado"]} ok</span><span className="text-xs text-cyan-400">{s.statusCounts["Em andamento"]} em estudo</span><span className="text-xs text-slate-500">{s.statusCounts["Não iniciado"]} pendentes</span></div></div></button>))}
+      {items.length > 0 && <div className="mt-2 pt-2 border-t border-white/5"><ItemsList items={items} stats={stats} meta={meta} onEditItem={onEditItem} onDeleteItem={onDeleteItem} onQuickGrade={onQuickGrade} title="Todas as atividades" /></div>}
     </div>
   );
 }
 
-// ─── ALL ITEMS TAB ────────────────────────────────────────────
-const SORT_OPTIONS = [{ value: "data-asc", label: "Data ↑" }, { value: "data-desc", label: "Data ↓" }, { value: "nota-desc", label: "Nota nec. ↑" }, { value: "nota-asc", label: "Nota nec. ↓" }];
+// ─── ITEMS LIST (reutilizável: dentro de Disciplinas) ─────────
+// Filtros: Todos / Não iniciado / Em Estudo / Finalizado
+// Ordenação: Data (asc/desc), Nota Necessária (asc/desc)
+const STATUS_FILTERS = [
+  { id: "Todos", label: "Todos", match: (_it: AtividadeEnriquecida) => true },
+  { id: "Não iniciado", label: "Não iniciado", match: (it: AtividadeEnriquecida) => it.status === "Não iniciado" },
+  { id: "Em Estudo", label: "Em Estudo", match: (it: AtividadeEnriquecida) => ["Estudo inicial","Estudo médio","Estudo avançado"].includes(it.status) },
+  { id: "Finalizado", label: "Finalizado", match: (it: AtividadeEnriquecida) => it.status === "Finalizado" },
+];
 
-function AllItemsTab({ items, stats, meta, onEditItem, onDeleteItem }: { items: AtividadeEnriquecida[]; stats: DisciplinaStats[]; meta: number; onEditItem: (item: Atividade) => void; onDeleteItem: (id: string) => void }) {
-  const [filter, setFilter] = useState(""); const [statusFilter, setStatusFilter] = useState("Todos"); const [sort, setSort] = useState("data-asc");
+function ItemsList({ items, stats, meta, onEditItem, onDeleteItem, onQuickGrade, title }: {
+  items: AtividadeEnriquecida[]; stats: DisciplinaStats[]; meta: number;
+  onEditItem: (item: Atividade) => void; onDeleteItem: (id: string) => void;
+  onQuickGrade?: (item: Atividade) => void; title?: string;
+}) {
+  const [filter, setFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Todos");
+  const [sortField, setSortField] = useState<"data" | "nota">("data");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const notaNecMap = useMemo(() => { const m: Record<string, number> = {}; stats.forEach(s => { m[s.disciplina] = s.notaNecessaria ?? 0; }); return m; }, [stats]);
-  const filtered = useMemo(() => { const q = filter.toLowerCase(); const list = items.filter(it => (!q || it.disciplina.toLowerCase().includes(q) || it.instrumento.toLowerCase().includes(q) || it.avaliacao.toLowerCase().includes(q)) && (statusFilter === "Todos" || it.status === statusFilter)); return [...list].sort((a, b) => { if (sort === "data-asc") return (a.daysRemaining ?? 9999) - (b.daysRemaining ?? 9999); if (sort === "data-desc") return (b.daysRemaining ?? -9999) - (a.daysRemaining ?? -9999); if (sort === "nota-desc") return (notaNecMap[b.disciplina] ?? 0) - (notaNecMap[a.disciplina] ?? 0); if (sort === "nota-asc") return (notaNecMap[a.disciplina] ?? 0) - (notaNecMap[b.disciplina] ?? 0); return 0; }); }, [items, filter, statusFilter, sort, notaNecMap]);
+  const toggleSort = (field: "data" | "nota") => {
+    if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("asc"); }
+  };
+  const filtered = useMemo(() => {
+    const q = filter.toLowerCase();
+    const sf = STATUS_FILTERS.find(f => f.id === statusFilter) || STATUS_FILTERS[0];
+    const list = items.filter(it =>
+      (!q || it.disciplina.toLowerCase().includes(q) || it.instrumento.toLowerCase().includes(q) || it.avaliacao.toLowerCase().includes(q)) &&
+      sf.match(it)
+    );
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      if (sortField === "data") return ((a.daysRemaining ?? 99999) - (b.daysRemaining ?? 99999)) * dir;
+      return ((notaNecMap[a.disciplina] ?? 0) - (notaNecMap[b.disciplina] ?? 0)) * dir;
+    });
+  }, [items, filter, statusFilter, sortField, sortDir, notaNecMap]);
+  const arrow = sortDir === "asc" ? "↑" : "↓";
   return (
     <div className="flex flex-col gap-4">
-      <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Buscar disciplina, instrumento..." className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 outline-none focus:border-indigo-500 transition" style={{ background: "rgba(255,255,255,0.05)" }} />
-      <div className="flex gap-2 overflow-x-auto pb-1">{["Todos",...STATUS_OPTIONS].map(s => <button key={s} onClick={() => setStatusFilter(s)} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition ${statusFilter === s ? "text-white" : "text-slate-400 border border-white/10"}`} style={statusFilter === s ? { background: "linear-gradient(135deg,#6366f1,#8b5cf6)" } : {}}>{s}</button>)}</div>
-      <div className="flex items-center gap-2"><span className="text-xs text-slate-500 shrink-0">Ordenar:</span><div className="flex gap-1.5 overflow-x-auto pb-0.5">{SORT_OPTIONS.map(o => <button key={o.value} onClick={() => setSort(o.value)} className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition ${sort === o.value ? "text-white border" : "text-slate-400 border border-white/10"}`} style={sort === o.value ? { background: "rgba(99,102,241,0.4)", borderColor: "rgba(99,102,241,0.5)" } : {}}>{o.label}</button>)}</div></div>
-      <p className="text-xs text-slate-500">{filtered.length} atividades</p>
-      <div className="flex flex-col gap-2">{filtered.map(it => { const nota = calcNota(it.pontuacao, it.pontuacaoMaxima); return (<div key={it.id} className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}><div className="flex items-start justify-between gap-2"><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white truncate">{it.instrumento}</p><p className="text-xs text-slate-500 mt-0.5">{it.disciplina} · {it.avaliacao}</p><div className="flex gap-1 mt-1.5 flex-wrap"><StatusBadge status={it.status} />{it.daysRemaining != null && <Badge color={it.daysRemaining < 0 && it.pontuacao == null ? "yellow" : it.daysRemaining < 0 ? "slate" : it.daysRemaining <= 7 ? "yellow" : "slate"}>{it.daysRemaining < 0 ? (it.pontuacao == null ? `Aguard. correção (${Math.abs(it.daysRemaining)}d)` : `${Math.abs(it.daysRemaining)}d atrás`) : `${it.daysRemaining}d`}</Badge>}</div></div><div className="flex flex-col items-end gap-2 shrink-0"><span className="text-base font-bold" style={{ color: notaColor(nota, meta) }}>{nota != null ? nota.toFixed(1) : "—"}/10</span><div className="flex gap-1"><button onClick={() => onEditItem(it)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" style={{ background: "rgba(255,255,255,0.06)" }}>✏️</button><button onClick={() => onDeleteItem(it.id)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" style={{ background: "rgba(239,68,68,0.1)" }}>🗑</button></div></div></div></div>); })}</div>
+      {title && <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">{title}</p>}
+      <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Buscar disciplina, instrumento, avaliação..." className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 outline-none focus:border-indigo-500 transition" style={{ background: "rgba(255,255,255,0.05)" }} />
+      <div className="flex gap-2 overflow-x-auto pb-1">{STATUS_FILTERS.map(f => <button key={f.id} onClick={() => setStatusFilter(f.id)} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition ${statusFilter === f.id ? "text-white" : "text-slate-400 border border-white/10"}`} style={statusFilter === f.id ? { background: "linear-gradient(135deg,#6366f1,#8b5cf6)" } : {}}>{f.label}</button>)}</div>
+      <div className="flex items-center gap-2"><span className="text-xs text-slate-500 shrink-0">Ordenar:</span><div className="flex gap-1.5">
+        <button onClick={() => toggleSort("data")} className={`px-3 py-1 rounded-lg text-xs font-medium transition border ${sortField === "data" ? "text-white" : "text-slate-400 border-white/10"}`} style={sortField === "data" ? { background: "rgba(99,102,241,0.4)", borderColor: "rgba(99,102,241,0.5)" } : {}}>Data {sortField === "data" ? arrow : ""}</button>
+        <button onClick={() => toggleSort("nota")} className={`px-3 py-1 rounded-lg text-xs font-medium transition border ${sortField === "nota" ? "text-white" : "text-slate-400 border-white/10"}`} style={sortField === "nota" ? { background: "rgba(99,102,241,0.4)", borderColor: "rgba(99,102,241,0.5)" } : {}}>Nota Necessária {sortField === "nota" ? arrow : ""}</button>
+      </div></div>
+      <p className="text-xs text-slate-500">{filtered.length} {filtered.length === 1 ? "item" : "itens"}</p>
+      <div className="flex flex-col gap-2">{filtered.length === 0 ? <div className="rounded-2xl p-8 border border-white/5 text-center" style={{ background: "rgba(255,255,255,0.03)" }}><p className="text-sm text-slate-500">Nenhum item encontrado.</p></div> : filtered.map(it => { const nota = calcNota(it.pontuacao, it.pontuacaoMaxima); const isEvento = it.tipo === "evento"; return (<div key={it.id} className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}><div className="flex items-start justify-between gap-2"><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white truncate">{it.instrumento}</p><p className="text-xs text-slate-500 mt-0.5">{it.disciplina} · {isEvento ? "📅 Evento" : it.avaliacao}</p><div className="flex gap-1 mt-1.5 flex-wrap"><StatusBadge status={it.status} />{it.daysRemaining != null && <Badge color={it.daysRemaining < 0 && it.pontuacao == null && !isEvento ? "yellow" : it.daysRemaining < 0 ? "slate" : it.daysRemaining <= 7 ? "yellow" : "slate"}>{it.daysRemaining < 0 ? (it.pontuacao == null && !isEvento ? `Aguard. correção (${Math.abs(it.daysRemaining)}d)` : `${Math.abs(it.daysRemaining)}d atrás`) : `${it.daysRemaining}d`}</Badge>}</div></div><div className="flex flex-col items-end gap-2 shrink-0">{isEvento ? <span className="text-xs text-cyan-400 font-semibold">evento</span> : <span className="text-base font-bold" style={{ color: notaColor(nota, meta) }}>{nota != null ? nota.toFixed(1) : "—"}/10</span>}<div className="flex gap-1">{!isEvento && onQuickGrade && <button onClick={() => onQuickGrade(it)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" style={{ background: "rgba(16,185,129,0.15)" }} title="Lançar nota">🎯</button>}<button onClick={() => onEditItem(it)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Editar">✏️</button><button onClick={() => onDeleteItem(it.id)} className="w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" style={{ background: "rgba(239,68,68,0.1)" }} title="Excluir">🗑</button></div></div></div></div>); })}</div>
     </div>
   );
 }
@@ -686,7 +653,6 @@ function PlanejamentoTab({ stats, meta, onChangeMeta }: { stats: DisciplinaStats
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: "⚡" },
   { id: "disciplines", label: "Disciplinas", icon: "📖" },
-  { id: "all", label: "Atividades", icon: "📋" },
   { id: "plano", label: "Planejamento", icon: "🎯" },
   { id: "alerts", label: "Alertas", icon: "🔔" },
   { id: "calendar", label: "Calendário", icon: "📅" },
@@ -722,6 +688,7 @@ export default function App() {
   }, [editingItem, addAtividade, updateAtividade]);
 
   const handleEdit = useCallback((item: Atividade) => { setEditingItem(item); setModal("edit"); }, []);
+  const handleQuickGrade = useCallback((item: Atividade) => { setEditingItem(item); setModal("edit"); }, []);
   const handleDelete = useCallback((id: string) => { setDeleteId(id); setModal("delete"); }, []);
   const confirmDelete = useCallback(async () => {
     if (deleteId) await deleteAtividade(deleteId);
@@ -741,7 +708,6 @@ export default function App() {
           <div className="flex gap-2">
             <button onClick={() => setModal("import")} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Importar">📂</button>
             <button onClick={() => setModal("export")} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Exportar">📥</button>
-            <button onClick={() => setModal("sim")} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Simulações">🔮</button>
             <button onClick={signOut} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Sair">🚪</button>
             <button onClick={() => { setEditingItem(null); setModal("add"); }} className="px-3 h-8 rounded-xl text-xs font-semibold text-white flex items-center gap-1" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>+ Novo</button>
           </div>
@@ -761,28 +727,35 @@ export default function App() {
         </div>
       )}
 
-      <div className="sticky top-[57px] z-30 border-b border-white/5" style={{ background: "rgba(10,15,26,0.95)", backdropFilter: "blur(20px)" }}>
-        <div className="max-w-2xl mx-auto px-4">
-          <div className="flex overflow-x-auto">
-            {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} className={`flex-1 min-w-[52px] py-3 text-xs font-semibold flex flex-col items-center gap-0.5 transition border-b-2 ${tab === t.id ? "border-indigo-500 text-indigo-400" : "border-transparent text-slate-500 hover:text-slate-300"}`}><span>{t.icon}</span><span className="whitespace-nowrap">{t.label}</span></button>)}
-          </div>
-        </div>
-      </div>
-
       {dataLoading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-slate-500 text-sm">Carregando suas atividades...</p></div>
       ) : (
-        <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6 pb-24">
+        <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6" style={{ paddingBottom: "calc(80px + var(--sab, 0px))" }}>
           {tab === "dashboard"   && <DashboardTab   items={items} stats={stats} meta={meta} />}
-          {tab === "disciplines" && <DisciplineTab  stats={stats} meta={meta} onEditItem={handleEdit} onDeleteItem={handleDelete} />}
-          {tab === "all"         && <AllItemsTab    items={items} stats={stats} meta={meta} onEditItem={handleEdit} onDeleteItem={handleDelete} />}
+          {tab === "disciplines" && <DisciplineTab  items={items} stats={stats} meta={meta} onEditItem={handleEdit} onDeleteItem={handleDelete} onQuickGrade={handleQuickGrade} />}
           {tab === "plano"       && <PlanejamentoTab stats={stats} meta={meta} onChangeMeta={handleChangeMeta} />}
           {tab === "alerts"      && <AlertsTab      items={items} stats={stats} meta={meta} />}
           {tab === "calendar"    && <CalendarTab    items={items} />}
         </main>
       )}
 
-      <button onClick={() => { setEditingItem(null); setModal("add"); }} className="fixed bottom-6 right-4 w-14 h-14 rounded-2xl text-2xl text-white shadow-2xl z-30 flex items-center justify-center sm:hidden" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 8px 32px rgba(99,102,241,0.4)" }}>+</button>
+      {/* Barra de navegação fixa estilo app — ícones (mobile) + rótulo (desktop) */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10" style={{ background: "rgba(10,15,26,0.97)", backdropFilter: "blur(20px)", paddingBottom: "var(--sab, 0px)" }} aria-label="Navegação principal">
+        <div className="max-w-2xl mx-auto px-2 flex">
+          {TABS.map(t => {
+            const active = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)} aria-label={t.label} aria-current={active ? "page" : undefined}
+                className={`flex-1 py-2.5 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 transition relative ${active ? "text-indigo-400" : "text-slate-500 hover:text-slate-300"}`}>
+                <span className="text-xl sm:text-base leading-none" style={active ? { transform: "scale(1.1)" } : {}}>{t.icon}</span>
+                <span className={`text-[10px] sm:text-xs font-semibold ${active ? "" : "sm:opacity-80"} hidden sm:inline`}>{t.label}</span>
+                <span className="text-[10px] font-medium sm:hidden">{active ? t.label : ""}</span>
+                {active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full" style={{ background: "linear-gradient(90deg,#6366f1,#8b5cf6)" }} />}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       <Modal open={modal === "add" || modal === "edit"} onClose={() => { setModal(null); setEditingItem(null); }} title={modal === "edit" ? "Editar Atividade" : "Nova Atividade"}>
         <ItemForm item={editingItem} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} disciplines={disciplines} />
@@ -792,9 +765,6 @@ export default function App() {
       </Modal>
       <Modal open={modal === "export"} onClose={() => setModal(null)} title="📥 Exportar Planilha">
         <ExportPanel items={atividades} onClose={() => setModal(null)} />
-      </Modal>
-      <Modal open={modal === "sim"} onClose={() => setModal(null)} title="🔮 Simulação Acadêmica">
-        <SimulationPanel stats={stats} meta={meta} onClose={() => setModal(null)} />
       </Modal>
       <Modal open={modal === "delete"} onClose={() => setModal(null)} title="Excluir Atividade">
         <div className="flex flex-col gap-4">
