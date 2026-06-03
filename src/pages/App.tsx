@@ -166,9 +166,9 @@ function classificarItem(it: AtividadeEnriquecida): { id: CatId; color: string; 
 const INPUT_CLS = "w-full rounded-xl px-3 py-2.5 text-sm text-white border border-white/10 outline-none focus:border-indigo-500 transition";
 const INPUT_STY = { background: "rgba(255,255,255,0.06)" };
 
-function ItemForm({ item, onSave, onClose, disciplines }: {
+function ItemForm({ item, onSave, onClose, disciplines, tipoInicial }: {
   item: Atividade | null; onSave: (form: Omit<Atividade, "id">) => void | Promise<void>;
-  onClose: () => void; disciplines: string[];
+  onClose: () => void; disciplines: string[]; tipoInicial?: "avaliacao" | "evento";
 }) {
   const toStr = (v: any) => (v == null ? "" : String(v).replace(".", ","));
   const isEditing = !!item;
@@ -177,7 +177,7 @@ function ItemForm({ item, onSave, onClose, disciplines }: {
     isEditing ? (itemDiscExists ? "existing" : "new") : (disciplines.length > 0 ? "existing" : "new")
   );
   const [newDiscName, setNewDiscName] = useState(isEditing && !itemDiscExists ? (item?.disciplina || "") : "");
-  const [tipo, setTipo] = useState<"avaliacao" | "evento">(item?.tipo === "evento" ? "evento" : "avaliacao");
+  const [tipo, setTipo] = useState<"avaliacao" | "evento">(item?.tipo === "evento" ? "evento" : (tipoInicial || "avaliacao"));
   const [form, setForm] = useState<any>(() => {
     const base: any = item || { avaliacao: "AP1", instrumento: "", disciplina: disciplines[0] || "", subdivisao: "", status: "Não iniciado", data: "", pesoAvaliacao: 0.2, pesoInstrumento: 1.0, pontuacaoMaxima: null, pontuacao: null, observacoes: "" };
     return { ...base, _pa: toStr(base.pesoAvaliacao), _pi: toStr(base.pesoInstrumento), _pm: toStr(base.pontuacaoMaxima), _p: toStr(base.pontuacao) };
@@ -758,6 +758,132 @@ function QuickGradePanel({ item, stats, meta, onSave, onClose }: {
   );
 }
 
+// ─── NOVA DISCIPLINA (cadastro em lote) ───────────────────────
+const TIPO_DISCIPLINA = ["Teórica", "Prática", "Mista"];
+const TIPO_AVALIACAO_LOTE = ["AP1", "AP2", "AS", "AF", "Seminário", "Projeto", "Avaliação Prática", "Avaliação Teórica"];
+
+function NovaDisciplinaForm({ onSaveBatch, onClose }: {
+  onSaveBatch: (novas: Omit<Atividade, "id">[]) => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [tipoDisc, setTipoDisc] = useState("Teórica");
+  const [obsDisc, setObsDisc] = useState("");
+  const [subdivisoes, setSubdivisoes] = useState<string[]>([]);
+  const [novaSub, setNovaSub] = useState("");
+  const [avaliacoes, setAvaliacoes] = useState<any[]>([
+    { _id: 1, nome: "AP1", tipo: "AP1", subdivisao: "", data: "", peso: "", pontuacaoMaxima: "10", observacoes: "" },
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const addAvaliacao = () => setAvaliacoes(a => [...a, { _id: Date.now(), nome: "", tipo: "AP1", subdivisao: "", data: "", peso: "", pontuacaoMaxima: "10", observacoes: "" }]);
+  const removeAvaliacao = (id: number) => setAvaliacoes(a => a.filter(x => x._id !== id));
+  const setAv = (id: number, k: string, v: any) => setAvaliacoes(a => a.map(x => x._id === id ? { ...x, [k]: v } : x));
+  const addSub = () => { const s = novaSub.trim(); if (s && !subdivisoes.includes(s)) { setSubdivisoes(p => [...p, s]); setNovaSub(""); } };
+  const removeSub = (s: string) => { setSubdivisoes(p => p.filter(x => x !== s)); setAvaliacoes(a => a.map(x => x.subdivisao === s ? { ...x, subdivisao: "" } : x)); };
+
+  const somaPesos = useMemo(() => avaliacoes.reduce((acc, a) => acc + (parseDecimal(a.peso) ?? 0), 0), [avaliacoes]);
+  const restante = 100 - somaPesos;
+  const somaColor = Math.abs(somaPesos - 100) < 0.01 ? "#10b981" : somaPesos > 100 ? "#ef4444" : "#f59e0b";
+
+  const handleSave = async () => {
+    if (saving) return;
+    if (!nome.trim()) { setErro("Dê um nome à disciplina."); return; }
+    const validas = avaliacoes.filter(a => a.nome.trim());
+    if (validas.length === 0) { setErro("Adicione ao menos uma avaliação com nome."); return; }
+    setErro("");
+    setSaving(true);
+    try {
+      const obsBase = `[Disciplina: ${tipoDisc}]${obsDisc.trim() ? " " + obsDisc.trim() : ""}`;
+      const novas: Omit<Atividade, "id">[] = validas.map(a => {
+        const pesoNum = parseDecimal(a.peso) ?? 0;
+        return {
+          tipo: "avaliacao" as const,
+          avaliacao: a.tipo,
+          instrumento: a.nome.trim(),
+          disciplina: nome.trim(),
+          subdivisao: a.subdivisao || "",
+          status: "Não iniciado" as const,
+          data: a.data || "",
+          pesoAvaliacao: pesoNum / 100,   // peso único (%) → fração
+          pesoInstrumento: 1,             // mantém compatibilidade com cálculo (mult. dos dois)
+          pontuacaoMaxima: parseDecimal(a.pontuacaoMaxima),
+          pontuacao: null,
+          observacoes: [obsBase, a.observacoes.trim()].filter(Boolean).join(" · "),
+        };
+      });
+      await onSaveBatch(novas);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Dados da disciplina */}
+      <div className="flex flex-col gap-3">
+        <FormField label="Nome da disciplina"><input value={nome} onChange={e => setNome(e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Clínica Médica" autoFocus /></FormField>
+        <FormField label="Tipo da disciplina"><select value={tipoDisc} onChange={e => setTipoDisc(e.target.value)} className={INPUT_CLS} style={INPUT_STY}>{TIPO_DISCIPLINA.map(t => <option key={t}>{t}</option>)}</select></FormField>
+        <FormField label="Observações (opcional)"><input value={obsDisc} onChange={e => setObsDisc(e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Anotações sobre a disciplina" /></FormField>
+      </div>
+
+      {/* Subdivisões */}
+      <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.03)" }}>
+        <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-2">Subdivisões (opcional)</p>
+        <div className="flex gap-2 mb-2">
+          <input value={novaSub} onChange={e => setNovaSub(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSub(); } }} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Teórica, Módulo A..." />
+          <button onClick={addSub} className="px-3 rounded-xl text-sm font-semibold text-white shrink-0" style={{ background: "rgba(99,102,241,0.4)" }}>+</button>
+        </div>
+        {subdivisoes.length > 0 && <div className="flex flex-wrap gap-2">{subdivisoes.map(s => <span key={s} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-white" style={{ background: "rgba(99,102,241,0.25)" }}>{s}<button onClick={() => removeSub(s)} className="text-slate-400 hover:text-white">✕</button></span>)}</div>}
+      </div>
+
+      {/* Avaliações em lote */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Avaliações</p>
+          <span className="text-xs font-bold" style={{ color: somaColor }}>Pesos: {somaPesos.toFixed(0)}% · resta {restante.toFixed(0)}%</span>
+        </div>
+        <div className="w-full rounded-full overflow-hidden mb-3" style={{ height: 6, background: "rgba(255,255,255,0.07)" }}><div style={{ width: `${Math.min(100, somaPesos)}%`, height: "100%", background: somaColor, transition: "width 0.3s" }} /></div>
+
+        <div className="flex flex-col gap-3">
+          {avaliacoes.map((a, idx) => (
+            <div key={a._id} className="rounded-2xl p-3 border border-white/10" style={{ background: "rgba(255,255,255,0.04)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-400">Avaliação {idx + 1}</span>
+                {avaliacoes.length > 1 && <button onClick={() => removeAvaliacao(a._id)} className="text-xs text-red-400">remover</button>}
+              </div>
+              <div className="flex flex-col gap-2">
+                <input value={a.nome} onChange={e => setAv(a._id, "nome", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Nome (ex: Prova 1)" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={a.tipo} onChange={e => setAv(a._id, "tipo", e.target.value)} className={INPUT_CLS} style={INPUT_STY}>{TIPO_AVALIACAO_LOTE.map(t => <option key={t}>{t}</option>)}</select>
+                  {subdivisoes.length > 0
+                    ? <select value={a.subdivisao} onChange={e => setAv(a._id, "subdivisao", e.target.value)} className={INPUT_CLS} style={INPUT_STY}><option value="">Sem subdivisão</option>{subdivisoes.map(s => <option key={s}>{s}</option>)}</select>
+                    : <input type="date" value={a.data} onChange={e => setAv(a._id, "data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} />}
+                </div>
+                {subdivisoes.length > 0 && <input type="date" value={a.data} onChange={e => setAv(a._id, "data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} />}
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" inputMode="decimal" value={a.peso} onChange={e => setAv(a._id, "peso", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Peso % (ex: 40)" />
+                  <input type="text" inputMode="decimal" value={a.pontuacaoMaxima} onChange={e => setAv(a._id, "pontuacaoMaxima", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Pontuação máx (ex: 10)" />
+                </div>
+                <input value={a.observacoes} onChange={e => setAv(a._id, "observacoes", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Observações (opcional)" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={addAvaliacao} className="w-full mt-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-300 border border-indigo-500/30" style={{ background: "rgba(99,102,241,0.1)" }}>+ Adicionar avaliação</button>
+      </div>
+
+      {erro && <p className="text-xs text-red-400">{erro}</p>}
+
+      <div className="flex gap-2">
+        <button onClick={onClose} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-slate-400 border border-white/10 disabled:opacity-40">Cancelar</button>
+        <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-60" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>{saving ? "Salvando..." : "Salvar Tudo"}</button>
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: "⚡" },
   { id: "disciplines", label: "Disciplinas", icon: "📖" },
@@ -776,6 +902,8 @@ export default function App() {
   const [editingItem, setEditingItem] = useState<Atividade | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [localMeta, setLocalMeta] = useState(7);
+  const [showAddMenu, setShowAddMenu] = useState(false);          // menu do botão "+"
+  const [novoTipo, setNovoTipo] = useState<"avaliacao" | "evento">("avaliacao"); // pré-seleção do ItemForm
 
   const meta = profile?.metaAprovacao ?? localMeta;
 
@@ -794,6 +922,19 @@ export default function App() {
     else await addAtividade(form);
     setModal(null); setEditingItem(null);
   }, [editingItem, addAtividade, updateAtividade]);
+
+  // Salvamento em lote (fluxo Nova Disciplina) — cria todas as avaliações de uma vez
+  const handleSaveBatch = useCallback(async (novas: Omit<Atividade, "id">[]) => {
+    for (const nova of novas) {
+      await addAtividade(nova);
+    }
+    setModal(null);
+  }, [addAtividade]);
+
+  // Abre o ItemForm já com o tipo certo (avaliação ou evento)
+  const openNovaAvaliacao = useCallback(() => { setEditingItem(null); setNovoTipo("avaliacao"); setShowAddMenu(false); setModal("add"); }, []);
+  const openNovoEvento = useCallback(() => { setEditingItem(null); setNovoTipo("evento"); setShowAddMenu(false); setModal("add"); }, []);
+  const openNovaDisciplina = useCallback(() => { setShowAddMenu(false); setModal("novadisc"); }, []);
 
   const handleEdit = useCallback((item: Atividade) => { setEditingItem(item); setModal("edit"); }, []);
   const handleQuickGrade = useCallback((item: Atividade) => { setEditingItem(item); setModal("quickgrade"); }, []);
@@ -817,7 +958,19 @@ export default function App() {
             <button onClick={() => setModal("import")} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Importar">📂</button>
             <button onClick={() => setModal("export")} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Exportar">📥</button>
             <button onClick={signOut} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm text-slate-400 hover:text-white transition" style={{ background: "rgba(255,255,255,0.06)" }} title="Sair">🚪</button>
-            <button onClick={() => { setEditingItem(null); setModal("add"); }} className="px-3 h-8 rounded-xl text-xs font-semibold text-white flex items-center gap-1" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>+ Novo</button>
+            <div className="relative">
+              <button onClick={() => setShowAddMenu(v => !v)} className="px-3 h-8 rounded-xl text-xs font-semibold text-white flex items-center gap-1" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>+ Novo</button>
+              {showAddMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
+                  <div className="absolute right-0 mt-2 w-52 rounded-2xl border border-white/10 overflow-hidden z-50 shadow-2xl" style={{ background: "#111827" }}>
+                    <button onClick={openNovaDisciplina} className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-white hover:bg-white/5 transition border-b border-white/5"><span className="text-base">📚</span><div><p className="font-semibold">Nova Disciplina</p><p className="text-xs text-slate-500">Configurar com avaliações</p></div></button>
+                    <button onClick={openNovaAvaliacao} className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-white hover:bg-white/5 transition border-b border-white/5"><span className="text-base">📊</span><div><p className="font-semibold">Nova Avaliação</p><p className="text-xs text-slate-500">Prova, trabalho, seminário</p></div></button>
+                    <button onClick={openNovoEvento} className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-white hover:bg-white/5 transition"><span className="text-base">📅</span><div><p className="font-semibold">Novo Evento</p><p className="text-xs text-slate-500">Palestra, entrega, visita</p></div></button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -865,8 +1018,11 @@ export default function App() {
         </div>
       </nav>
 
-      <Modal open={modal === "add" || modal === "edit"} onClose={() => { setModal(null); setEditingItem(null); }} title={modal === "edit" ? "Editar Atividade" : "Nova Atividade"}>
-        <ItemForm item={editingItem} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} disciplines={disciplines} />
+      <Modal open={modal === "novadisc"} onClose={() => setModal(null)} title="📚 Nova Disciplina">
+        <NovaDisciplinaForm onSaveBatch={handleSaveBatch} onClose={() => setModal(null)} />
+      </Modal>
+      <Modal open={modal === "add" || modal === "edit"} onClose={() => { setModal(null); setEditingItem(null); }} title={modal === "edit" ? "Editar Atividade" : (novoTipo === "evento" ? "Novo Evento" : "Nova Avaliação")}>
+        <ItemForm item={editingItem} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} disciplines={disciplines} tipoInicial={novoTipo} />
       </Modal>
       <Modal open={modal === "quickgrade" && !!editingItem} onClose={() => { setModal(null); setEditingItem(null); }} title="🎯 Lançar Nota">
         {editingItem && <QuickGradePanel item={editingItem} stats={stats} meta={meta} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} />}
