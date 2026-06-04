@@ -14,7 +14,7 @@ import { useDisciplinas } from "../hooks/useDisciplinas";
 import { enrichItem, getDisciplineStats, calcNota, calcDaysRemaining } from "../lib/calculos";
 import { exportToExcel, parseXlsxFile } from "../lib/xlsx";
 import { Login } from "./Login";
-import type { Atividade, AtividadeEnriquecida, DisciplinaStats, TipoDisciplina, ParteDisciplina } from "../types";
+import type { Atividade, AtividadeEnriquecida, DisciplinaStats, TipoDisciplina, ParteDisciplina, Disciplina } from "../types";
 
 // ─── CONSTANTES ──────────────────────────────────────────────
 const STATUS_OPTIONS = ["Não iniciado", "Estudo inicial", "Estudo médio", "Estudo avançado", "Finalizado"];
@@ -167,9 +167,9 @@ function classificarItem(it: AtividadeEnriquecida): { id: CatId; color: string; 
 const INPUT_CLS = "w-full rounded-xl px-3 py-2.5 text-sm text-white border border-white/10 outline-none focus:border-indigo-500 transition";
 const INPUT_STY = { background: "rgba(255,255,255,0.06)" };
 
-function ItemForm({ item, onSave, onClose, disciplines, tipoInicial }: {
+function ItemForm({ item, onSave, onClose, disciplines, disciplinasFull, tipoInicial }: {
   item: Atividade | null; onSave: (form: Omit<Atividade, "id">) => void | Promise<void>;
-  onClose: () => void; disciplines: string[]; tipoInicial?: "avaliacao" | "evento";
+  onClose: () => void; disciplines: string[]; disciplinasFull: Disciplina[]; tipoInicial?: "avaliacao" | "evento";
 }) {
   const toStr = (v: any) => (v == null ? "" : String(v).replace(".", ","));
   const isEditing = !!item;
@@ -188,20 +188,26 @@ function ItemForm({ item, onSave, onClose, disciplines, tipoInicial }: {
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
   const isEvento = tipo === "evento";
   const disciplinaFinal = discMode === "existing" ? form.disciplina : newDiscName.trim();
+  // Disciplina selecionada como entidade (para saber tipo, subdivisões, id)
+  const discObj = disciplinasFull.find(d => d.nome === disciplinaFinal) || null;
+  const isMista = discObj?.tipo === "Mista";
+  const subdivisoesDisc = discObj?.subdivisoes ?? [];
   const handleSave = async () => {
     if (saving) return;                                  // FIX BUG2: ignora cliques repetidos
     const errs: any = {};
     if (!form.instrumento.trim()) errs.instrumento = true;
-    if (!disciplinaFinal) errs.disciplina = true;
+    // Disciplina é obrigatória para avaliação, mas OPCIONAL para evento
+    if (!isEvento && !disciplinaFinal) errs.disciplina = true;
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setSaving(true);
     try {
+      const parteFinal = isMista ? (form.parte === "pratica" ? "pratica" : "teorica") : "unica";
       if (isEvento) {
-        // Eventos: sem nota, sem peso — não afetam cálculos
-        await onSave({ ...form, tipo: "evento", avaliacao: "Evento", disciplina: disciplinaFinal, pesoAvaliacao: 0, pesoInstrumento: 0, pontuacaoMaxima: null, pontuacao: null });
+        // Eventos: sem nota, sem peso — não afetam cálculos. Disciplina opcional.
+        await onSave({ ...form, tipo: "evento", avaliacao: "Evento", disciplina: disciplinaFinal || "", disciplinaId: discObj?.id ?? null, parte: "unica", pesoAvaliacao: 0, pesoInstrumento: 0, pontuacaoMaxima: null, pontuacao: null });
       } else {
-        await onSave({ ...form, tipo: "avaliacao", disciplina: disciplinaFinal, pesoAvaliacao: parseDecimal(form._pa) ?? 0, pesoInstrumento: parseDecimal(form._pi) ?? 0, pontuacaoMaxima: parseDecimal(form._pm), pontuacao: parseDecimal(form._p) });
+        await onSave({ ...form, tipo: "avaliacao", disciplina: disciplinaFinal, disciplinaId: discObj?.id ?? null, parte: parteFinal, pesoAvaliacao: parseDecimal(form._pa) ?? 0, pesoInstrumento: parseDecimal(form._pi) ?? 0, pontuacaoMaxima: parseDecimal(form._pm), pontuacao: parseDecimal(form._p) });
       }
     } finally {
       setSaving(false);
@@ -235,7 +241,7 @@ function ItemForm({ item, onSave, onClose, disciplines, tipoInicial }: {
       <FormField label={`${isEvento ? "Evento" : "Instrumento"}${errors.instrumento ? " — obrigatório" : ""}`}>
         <input value={form.instrumento} onChange={e => set("instrumento", e.target.value)} className={`${INPUT_CLS} ${errors.instrumento ? errCls : ""}`} style={INPUT_STY} placeholder={isEvento ? "Nome do evento" : "Nome do instrumento"} />
       </FormField>
-      <FormField label={`Disciplina${errors.disciplina ? " — obrigatório" : ""}`}>
+      <FormField label={`Disciplina${isEvento ? " (opcional)" : ""}${errors.disciplina ? " — obrigatório" : ""}`}>
         <div className="flex rounded-xl overflow-hidden border border-white/10 mb-2" style={{ background: "rgba(255,255,255,0.03)" }}>
           <button type="button" onClick={() => { setDiscMode("existing"); if (!form.disciplina && disciplines.length > 0) set("disciplina", disciplines[0]); }}
             className={`flex-1 py-2 text-xs font-semibold transition ${discMode === "existing" ? "text-white" : "text-slate-500 hover:text-slate-300"}`}
@@ -248,21 +254,37 @@ function ItemForm({ item, onSave, onClose, disciplines, tipoInicial }: {
             + Nova disciplina
           </button>
         </div>
+        {isEvento && <p className="text-xs text-slate-600 mb-2 px-1">Eventos podem ficar sem disciplina (aparecem em "Geral").</p>}
         {discMode === "existing" ? (
           disciplines.length === 0 ? (
             <p className="text-xs text-slate-500 italic px-1">Nenhuma disciplina ainda. <button type="button" className="text-indigo-400 underline" onClick={() => setDiscMode("new")}>Criar nova</button></p>
           ) : (
             <select value={form.disciplina} onChange={e => set("disciplina", e.target.value)} className={`${INPUT_CLS} ${errors.disciplina && !form.disciplina ? errCls : ""}`} style={INPUT_STY}>
+              {isEvento && <option value="">Sem disciplina (Geral)</option>}
               {disciplines.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           )
         ) : (
           <input value={newDiscName} onChange={e => setNewDiscName(e.target.value)} className={`${INPUT_CLS} ${errors.disciplina && !newDiscName.trim() ? errCls : ""}`} style={INPUT_STY} placeholder="Nome da nova disciplina" autoFocus />
         )}
-        {discMode === "existing" && form.disciplina && <p className="text-xs text-slate-600 mt-1 px-1">Disciplina: <span className="text-slate-400">{form.disciplina}</span></p>}
+        {discMode === "existing" && form.disciplina && <p className="text-xs text-slate-600 mt-1 px-1">Disciplina: <span className="text-slate-400">{form.disciplina}</span>{discObj ? ` · ${discObj.tipo}` : ""}</p>}
         {discMode === "new" && newDiscName.trim() && <p className="text-xs text-emerald-600 mt-1 px-1">✓ Será criada: <span className="text-emerald-400">{newDiscName.trim()}</span></p>}
       </FormField>
-      <FormField label="Subdivisão"><input value={form.subdivisao} onChange={e => set("subdivisao", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Pneumo e Cardio" /></FormField>
+      {/* Parte da disciplina — só para avaliação em disciplina MISTA */}
+      {!isEvento && isMista && (
+        <FormField label="Parte da disciplina">
+          <div className="flex rounded-xl overflow-hidden border border-white/10" style={{ background: "rgba(255,255,255,0.03)" }}>
+            <button type="button" onClick={() => set("parte", "teorica")} className={`flex-1 py-2 text-xs font-semibold transition ${form.parte !== "pratica" ? "text-white" : "text-slate-500"}`} style={form.parte !== "pratica" ? { background: "linear-gradient(135deg,#6366f1,#8b5cf6)" } : {}}>Teórica ({discObj?.pesoTeorica.toFixed(0)}%)</button>
+            <button type="button" onClick={() => set("parte", "pratica")} className={`flex-1 py-2 text-xs font-semibold transition ${form.parte === "pratica" ? "text-white" : "text-slate-500"}`} style={form.parte === "pratica" ? { background: "linear-gradient(135deg,#06b6d4,#0891b2)" } : {}}>Prática ({discObj?.pesoPratica.toFixed(0)}%)</button>
+          </div>
+        </FormField>
+      )}
+      {/* Subdivisão: dropdown se a disciplina tem subdivisões; senão campo livre */}
+      {subdivisoesDisc.length > 0 ? (
+        <FormField label="Subdivisão"><select value={form.subdivisao} onChange={e => set("subdivisao", e.target.value)} className={INPUT_CLS} style={INPUT_STY}><option value="">Sem subdivisão</option>{subdivisoesDisc.map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+      ) : (
+        <FormField label="Subdivisão (opcional)"><input value={form.subdivisao} onChange={e => set("subdivisao", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Pneumo e Cardio" /></FormField>
+      )}
       <FormField label="Data"><input type="date" value={form.data} onChange={e => set("data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} /></FormField>
       {!isEvento && (
         <>
@@ -1122,7 +1144,7 @@ export default function App() {
         <NovaDisciplinaForm onSaveDisciplina={handleSaveDisciplina} onClose={() => setModal(null)} />
       </Modal>
       <Modal open={modal === "add" || modal === "edit"} onClose={() => { setModal(null); setEditingItem(null); }} title={modal === "edit" ? "Editar Atividade" : (novoTipo === "evento" ? "Novo Evento" : "Nova Avaliação")}>
-        <ItemForm item={editingItem} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} disciplines={disciplines} tipoInicial={novoTipo} />
+        <ItemForm item={editingItem} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} disciplines={disciplines} disciplinasFull={disciplinas} tipoInicial={novoTipo} />
       </Modal>
       <Modal open={modal === "quickgrade" && !!editingItem} onClose={() => { setModal(null); setEditingItem(null); }} title="🎯 Lançar Nota">
         {editingItem && <QuickGradePanel item={editingItem} stats={stats} meta={meta} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} />}

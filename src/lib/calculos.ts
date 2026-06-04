@@ -37,11 +37,12 @@ export function getDisciplineStats(
   const metaByName: Record<string, Disciplina> = {};
   disciplinas.forEach((d) => { metaByName[d.nome] = d; });
 
-  // Agrupa por nome de disciplina. Inclui também disciplinas SEM atividades.
+  // Agrupa por nome de disciplina. Itens sem disciplina (ex: eventos gerais) → "Geral".
   const byDisc: Record<string, AtividadeEnriquecida[]> = {};
   items.forEach((it) => {
-    if (!byDisc[it.disciplina]) byDisc[it.disciplina] = [];
-    byDisc[it.disciplina].push(it);
+    const chave = it.disciplina && it.disciplina.trim() ? it.disciplina : "Geral";
+    if (!byDisc[chave]) byDisc[chave] = [];
+    byDisc[chave].push(it);
   });
   // Garante que disciplinas cadastradas mas ainda sem atividades apareçam
   disciplinas.forEach((d) => {
