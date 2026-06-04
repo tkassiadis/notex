@@ -14,7 +14,7 @@ import { useDisciplinas } from "../hooks/useDisciplinas";
 import { enrichItem, getDisciplineStats, calcNota, calcDaysRemaining } from "../lib/calculos";
 import { exportToExcel, parseXlsxFile } from "../lib/xlsx";
 import { Login } from "./Login";
-import type { Atividade, AtividadeEnriquecida, DisciplinaStats } from "../types";
+import type { Atividade, AtividadeEnriquecida, DisciplinaStats, TipoDisciplina, ParteDisciplina } from "../types";
 
 // ─── CONSTANTES ──────────────────────────────────────────────
 const STATUS_OPTIONS = ["Não iniciado", "Estudo inicial", "Estudo médio", "Estudo avançado", "Finalizado"];
@@ -785,98 +785,94 @@ function QuickGradePanel({ item, stats, meta, onSave, onClose }: {
 const TIPO_DISCIPLINA = ["Teórica", "Prática", "Mista"];
 const TIPO_AVALIACAO_LOTE = ["AP1", "AP2", "AS", "AF", "Seminário", "Projeto", "Avaliação Prática", "Avaliação Teórica"];
 
-function NovaDisciplinaForm({ onSaveBatch, onClose }: {
-  onSaveBatch: (novas: Omit<Atividade, "id">[]) => void | Promise<void>;
+// Nova Disciplina (Fase D): cria a entidade Disciplina de verdade.
+// Avaliações são OPCIONAIS — pode salvar disciplina vazia e lançar depois.
+function NovaDisciplinaForm({ onSaveDisciplina, onClose }: {
+  onSaveDisciplina: (
+    disc: { nome: string; tipo: TipoDisciplina; observacoes: string; pesoTeorica: number; pesoPratica: number; subdivisoes: string[] },
+    avaliacoes: { avaliacao: string; instrumento: string; parte: ParteDisciplina; subdivisao: string; data: string; pesoAvaliacao: number; pesoInstrumento: number; pontuacaoMaxima: number | null; observacoes: string }[]
+  ) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [nome, setNome] = useState("");
-  const [tipoDisc, setTipoDisc] = useState("Teórica");
+  const [tipoDisc, setTipoDisc] = useState<TipoDisciplina>("Teórica");
   const [obsDisc, setObsDisc] = useState("");
+  const [pesoTeorica, setPesoTeorica] = useState("60");   // só usado em Mista
   const [subdivisoes, setSubdivisoes] = useState<string[]>([]);
   const [novaSub, setNovaSub] = useState("");
-  const [avaliacoes, setAvaliacoes] = useState<any[]>([
-    { _id: 1, nome: "AP1", tipo: "AP1", subdivisao: "", data: "", peso: "", pontuacaoMaxima: "10", observacoes: "" },
-  ]);
+  const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [erro, setErro] = useState("");
 
-  const addAvaliacao = () => setAvaliacoes(a => [...a, { _id: Date.now(), nome: "", tipo: "AP1", subdivisao: "", data: "", peso: "", pontuacaoMaxima: "10", observacoes: "" }]);
+  const isMista = tipoDisc === "Mista";
+  const pTeorica = parseDecimal(pesoTeorica) ?? 0;
+  const pPratica = 100 - pTeorica;
+
+  const addAvaliacao = (parte: ParteDisciplina) => setAvaliacoes(a => [...a, { _id: Date.now() + Math.random(), nome: "", tipo: "AP1", parte, subdivisao: "", data: "", peso: "", pesoInstrumento: "100", pontuacaoMaxima: "10", observacoes: "" }]);
   const removeAvaliacao = (id: number) => setAvaliacoes(a => a.filter(x => x._id !== id));
   const setAv = (id: number, k: string, v: any) => setAvaliacoes(a => a.map(x => x._id === id ? { ...x, [k]: v } : x));
   const addSub = () => { const s = novaSub.trim(); if (s && !subdivisoes.includes(s)) { setSubdivisoes(p => [...p, s]); setNovaSub(""); } };
   const removeSub = (s: string) => { setSubdivisoes(p => p.filter(x => x !== s)); setAvaliacoes(a => a.map(x => x.subdivisao === s ? { ...x, subdivisao: "" } : x)); };
 
-  const somaPesos = useMemo(() => avaliacoes.reduce((acc, a) => acc + (parseDecimal(a.peso) ?? 0), 0), [avaliacoes]);
-  const restante = 100 - somaPesos;
-  const somaColor = Math.abs(somaPesos - 100) < 0.01 ? "#10b981" : somaPesos > 100 ? "#ef4444" : "#f59e0b";
+  // Soma de pesos por parte (cada parte deve fechar 100%)
+  const somaParte = (parte: ParteDisciplina) => avaliacoes.filter(a => a.parte === parte).reduce((acc, a) => acc + (parseDecimal(a.peso) ?? 0), 0);
+  const somaUnica = somaParte("unica");
+  const somaT = somaParte("teorica");
+  const somaP = somaParte("pratica");
+
+  const barColor = (soma: number, tem: boolean) => !tem ? "#64748b" : Math.abs(soma - 100) < 0.01 ? "#10b981" : soma > 100 ? "#ef4444" : "#f59e0b";
 
   const handleSave = async () => {
     if (saving) return;
     if (!nome.trim()) { setErro("Dê um nome à disciplina."); return; }
-    const validas = avaliacoes.filter(a => a.nome.trim());
-    if (validas.length === 0) { setErro("Adicione ao menos uma avaliação com nome."); return; }
+    if (isMista && (pTeorica < 0 || pTeorica > 100)) { setErro("Peso da parte teórica deve ficar entre 0 e 100."); return; }
     setErro("");
     setSaving(true);
     try {
-      const obsBase = `[Disciplina: ${tipoDisc}]${obsDisc.trim() ? " " + obsDisc.trim() : ""}`;
-      const novas: Omit<Atividade, "id">[] = validas.map(a => {
-        const pesoNum = parseDecimal(a.peso) ?? 0;
-        return {
-          tipo: "avaliacao" as const,
-          avaliacao: a.tipo,
-          instrumento: a.nome.trim(),
-          disciplina: nome.trim(),
-          disciplinaId: null,
-          parte: "unica" as const,
-          subdivisao: a.subdivisao || "",
-          status: "Não iniciado" as const,
-          data: a.data || "",
-          pesoAvaliacao: pesoNum / 100,   // peso único (%) → fração
-          pesoInstrumento: 1,             // mantém compatibilidade com cálculo (mult. dos dois)
-          pontuacaoMaxima: parseDecimal(a.pontuacaoMaxima),
-          pontuacao: null,
-          observacoes: [obsBase, a.observacoes.trim()].filter(Boolean).join(" · "),
-        };
-      });
-      await onSaveBatch(novas);
+      const disc = {
+        nome: nome.trim(),
+        tipo: tipoDisc,
+        observacoes: obsDisc.trim(),
+        pesoTeorica: isMista ? pTeorica : (tipoDisc === "Prática" ? 0 : 100),
+        pesoPratica: isMista ? pPratica : (tipoDisc === "Prática" ? 100 : 0),
+        subdivisoes,
+      };
+      const validas = avaliacoes.filter(a => a.nome.trim());
+      const avs = validas.map(a => ({
+        avaliacao: a.tipo,
+        instrumento: a.nome.trim(),
+        parte: (isMista ? a.parte : "unica") as ParteDisciplina,
+        subdivisao: a.subdivisao || "",
+        data: a.data || "",
+        pesoAvaliacao: (parseDecimal(a.peso) ?? 0) / 100,
+        pesoInstrumento: (parseDecimal(a.pesoInstrumento) ?? 100) / 100,
+        pontuacaoMaxima: parseDecimal(a.pontuacaoMaxima),
+        observacoes: a.observacoes.trim(),
+      }));
+      await onSaveDisciplina(disc, avs);
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="flex flex-col gap-5">
-      {/* Dados da disciplina */}
-      <div className="flex flex-col gap-3">
-        <FormField label="Nome da disciplina"><input value={nome} onChange={e => setNome(e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Clínica Médica" autoFocus /></FormField>
-        <FormField label="Tipo da disciplina"><select value={tipoDisc} onChange={e => setTipoDisc(e.target.value)} className={INPUT_CLS} style={INPUT_STY}>{TIPO_DISCIPLINA.map(t => <option key={t}>{t}</option>)}</select></FormField>
-        <FormField label="Observações (opcional)"><input value={obsDisc} onChange={e => setObsDisc(e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Anotações sobre a disciplina" /></FormField>
-      </div>
-
-      {/* Subdivisões */}
-      <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.03)" }}>
-        <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-2">Subdivisões (opcional)</p>
-        <div className="flex gap-2 mb-2">
-          <input value={novaSub} onChange={e => setNovaSub(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSub(); } }} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Teórica, Módulo A..." />
-          <button onClick={addSub} className="px-3 rounded-xl text-sm font-semibold text-white shrink-0" style={{ background: "rgba(99,102,241,0.4)" }}>+</button>
-        </div>
-        {subdivisoes.length > 0 && <div className="flex flex-wrap gap-2">{subdivisoes.map(s => <span key={s} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-white" style={{ background: "rgba(99,102,241,0.25)" }}>{s}<button onClick={() => removeSub(s)} className="text-slate-400 hover:text-white">✕</button></span>)}</div>}
-      </div>
-
-      {/* Avaliações em lote */}
-      <div>
+  // Renderiza um grupo de avaliações de uma parte
+  const renderAvaliacoes = (parte: ParteDisciplina, label: string) => {
+    const lista = avaliacoes.filter(a => a.parte === parte);
+    const soma = somaParte(parte);
+    const cor = barColor(soma, lista.length > 0);
+    return (
+      <div className="rounded-2xl p-3 border border-white/10" style={{ background: "rgba(255,255,255,0.03)" }}>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Avaliações</p>
-          <span className="text-xs font-bold" style={{ color: somaColor }}>Pesos: {somaPesos.toFixed(0)}% · resta {restante.toFixed(0)}%</span>
+          <span className="text-xs font-bold text-white">{label}</span>
+          {lista.length > 0 && <span className="text-xs font-bold" style={{ color: cor }}>{soma.toFixed(0)}% · resta {(100 - soma).toFixed(0)}%</span>}
         </div>
-        <div className="w-full rounded-full overflow-hidden mb-3" style={{ height: 6, background: "rgba(255,255,255,0.07)" }}><div style={{ width: `${Math.min(100, somaPesos)}%`, height: "100%", background: somaColor, transition: "width 0.3s" }} /></div>
-
+        {lista.length > 0 && <div className="w-full rounded-full overflow-hidden mb-3" style={{ height: 5, background: "rgba(255,255,255,0.07)" }}><div style={{ width: `${Math.min(100, soma)}%`, height: "100%", background: cor, transition: "width 0.3s" }} /></div>}
         <div className="flex flex-col gap-3">
-          {avaliacoes.map((a, idx) => (
-            <div key={a._id} className="rounded-2xl p-3 border border-white/10" style={{ background: "rgba(255,255,255,0.04)" }}>
+          {lista.map((a, idx) => (
+            <div key={a._id} className="rounded-xl p-3 border border-white/10" style={{ background: "rgba(255,255,255,0.04)" }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-400">Avaliação {idx + 1}</span>
-                {avaliacoes.length > 1 && <button onClick={() => removeAvaliacao(a._id)} className="text-xs text-red-400">remover</button>}
+                <span className="text-xs font-bold text-slate-400">{label} · {idx + 1}</span>
+                <button onClick={() => removeAvaliacao(a._id)} className="text-xs text-red-400">remover</button>
               </div>
               <div className="flex flex-col gap-2">
                 <input value={a.nome} onChange={e => setAv(a._id, "nome", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Nome (ex: Prova 1)" />
@@ -888,7 +884,7 @@ function NovaDisciplinaForm({ onSaveBatch, onClose }: {
                 </div>
                 {subdivisoes.length > 0 && <input type="date" value={a.data} onChange={e => setAv(a._id, "data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} />}
                 <div className="grid grid-cols-2 gap-2">
-                  <input type="text" inputMode="decimal" value={a.peso} onChange={e => setAv(a._id, "peso", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Peso % (ex: 40)" />
+                  <input type="text" inputMode="decimal" value={a.peso} onChange={e => setAv(a._id, "peso", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Peso na parte % (ex: 40)" />
                   <input type="text" inputMode="decimal" value={a.pontuacaoMaxima} onChange={e => setAv(a._id, "pontuacaoMaxima", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Pontuação máx (ex: 10)" />
                 </div>
                 <input value={a.observacoes} onChange={e => setAv(a._id, "observacoes", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Observações (opcional)" />
@@ -896,14 +892,65 @@ function NovaDisciplinaForm({ onSaveBatch, onClose }: {
             </div>
           ))}
         </div>
-        <button onClick={addAvaliacao} className="w-full mt-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-300 border border-indigo-500/30" style={{ background: "rgba(99,102,241,0.1)" }}>+ Adicionar avaliação</button>
+        <button onClick={() => addAvaliacao(parte)} className="w-full mt-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-300 border border-indigo-500/30" style={{ background: "rgba(99,102,241,0.1)" }}>+ Adicionar avaliação</button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Dados da disciplina */}
+      <div className="flex flex-col gap-3">
+        <FormField label="Nome da disciplina"><input value={nome} onChange={e => setNome(e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Clínica Médica" autoFocus /></FormField>
+        <FormField label="Tipo da disciplina">
+          <div className="flex rounded-xl overflow-hidden border border-white/10" style={{ background: "rgba(255,255,255,0.03)" }}>
+            {TIPO_DISCIPLINA.map(t => (
+              <button key={t} type="button" onClick={() => setTipoDisc(t as TipoDisciplina)} className={`flex-1 py-2 text-xs font-semibold transition ${tipoDisc === t ? "text-white" : "text-slate-500 hover:text-slate-300"}`} style={tipoDisc === t ? { background: "linear-gradient(135deg,#6366f1,#8b5cf6)" } : {}}>{t}</button>
+            ))}
+          </div>
+        </FormField>
+        {isMista && (
+          <div className="rounded-xl p-3 border border-indigo-500/20" style={{ background: "rgba(99,102,241,0.06)" }}>
+            <p className="text-xs text-slate-400 mb-2">Quanto cada parte vale da nota final:</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1"><label className="text-xs text-slate-500">Teórica %</label><input type="text" inputMode="decimal" value={pesoTeorica} onChange={e => setPesoTeorica(e.target.value)} className={INPUT_CLS} style={INPUT_STY} /></div>
+              <span className="text-slate-600 mt-4">+</span>
+              <div className="flex-1"><label className="text-xs text-slate-500">Prática %</label><div className={INPUT_CLS} style={{ ...INPUT_STY, opacity: 0.7 }}>{pPratica.toFixed(0)}</div></div>
+            </div>
+            <p className="text-xs mt-2" style={{ color: pTeorica >= 0 && pTeorica <= 100 ? "#10b981" : "#ef4444" }}>Teórica {pTeorica.toFixed(0)}% + Prática {pPratica.toFixed(0)}% = 100%</p>
+          </div>
+        )}
+        <FormField label="Observações (opcional)"><textarea value={obsDisc} onChange={e => setObsDisc(e.target.value)} rows={2} className={INPUT_CLS} style={INPUT_STY} placeholder="Anotações sobre a disciplina (ficam salvas)" /></FormField>
+      </div>
+
+      {/* Subdivisões */}
+      <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.03)" }}>
+        <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1">Subdivisões (opcional)</p>
+        <p className="text-xs text-slate-600 mb-2">Crie aqui; escolha em cada avaliação.</p>
+        <div className="flex gap-2 mb-2">
+          <input value={novaSub} onChange={e => setNovaSub(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSub(); } }} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Cardio, Módulo A..." />
+          <button onClick={addSub} className="px-3 rounded-xl text-sm font-semibold text-white shrink-0" style={{ background: "rgba(99,102,241,0.4)" }}>+</button>
+        </div>
+        {subdivisoes.length > 0 && <div className="flex flex-wrap gap-2">{subdivisoes.map(s => <span key={s} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-white" style={{ background: "rgba(99,102,241,0.25)" }}>{s}<button onClick={() => removeSub(s)} className="text-slate-400 hover:text-white">✕</button></span>)}</div>}
+      </div>
+
+      {/* Avaliações — opcionais */}
+      <div>
+        <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1">Avaliações (opcional)</p>
+        <p className="text-xs text-slate-600 mb-3">Você pode salvar a disciplina vazia e lançar avaliações depois.</p>
+        {isMista ? (
+          <div className="flex flex-col gap-3">
+            {renderAvaliacoes("teorica", `Parte Teórica (${pTeorica.toFixed(0)}%)`)}
+            {renderAvaliacoes("pratica", `Parte Prática (${pPratica.toFixed(0)}%)`)}
+          </div>
+        ) : renderAvaliacoes("unica", "Avaliações")}
       </div>
 
       {erro && <p className="text-xs text-red-400">{erro}</p>}
 
       <div className="flex gap-2">
         <button onClick={onClose} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-slate-400 border border-white/10 disabled:opacity-40">Cancelar</button>
-        <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-60" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>{saving ? "Salvando..." : "Salvar Tudo"}</button>
+        <button onClick={handleSave} disabled={saving} className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-60" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>{saving ? "Salvando..." : "Salvar Disciplina"}</button>
       </div>
     </div>
   );
@@ -954,12 +1001,35 @@ export default function App() {
   }, [editingItem, addAtividade, updateAtividade]);
 
   // Salvamento em lote (fluxo Nova Disciplina) — cria todas as avaliações de uma vez
-  const handleSaveBatch = useCallback(async (novas: Omit<Atividade, "id">[]) => {
-    for (const nova of novas) {
-      await addAtividade(nova);
+  const handleSaveDisciplina = useCallback(async (
+    disc: { nome: string; tipo: TipoDisciplina; observacoes: string; pesoTeorica: number; pesoPratica: number; subdivisoes: string[] },
+    avs: { avaliacao: string; instrumento: string; parte: ParteDisciplina; subdivisao: string; data: string; pesoAvaliacao: number; pesoInstrumento: number; pontuacaoMaxima: number | null; observacoes: string }[]
+  ) => {
+    // 1. Cria a disciplina na tabela
+    const novaDisc = await addDisciplina(disc);
+    // 2. Cria as avaliações ligadas a ela (se houver)
+    if (novaDisc) {
+      for (const a of avs) {
+        await addAtividade({
+          tipo: "avaliacao",
+          avaliacao: a.avaliacao,
+          instrumento: a.instrumento,
+          disciplina: disc.nome,
+          disciplinaId: novaDisc.id,
+          parte: a.parte,
+          subdivisao: a.subdivisao,
+          status: "Não iniciado",
+          data: a.data,
+          pesoAvaliacao: a.pesoAvaliacao,
+          pesoInstrumento: a.pesoInstrumento,
+          pontuacaoMaxima: a.pontuacaoMaxima,
+          pontuacao: null,
+          observacoes: a.observacoes,
+        });
+      }
     }
     setModal(null);
-  }, [addAtividade]);
+  }, [addDisciplina, addAtividade]);
 
   // Abre o ItemForm já com o tipo certo (avaliação ou evento)
   const openNovaAvaliacao = useCallback(() => { setEditingItem(null); setNovoTipo("avaliacao"); setShowAddMenu(false); setModal("add"); }, []);
@@ -1049,7 +1119,7 @@ export default function App() {
       </nav>
 
       <Modal open={modal === "novadisc"} onClose={() => setModal(null)} title="📚 Nova Disciplina">
-        <NovaDisciplinaForm onSaveBatch={handleSaveBatch} onClose={() => setModal(null)} />
+        <NovaDisciplinaForm onSaveDisciplina={handleSaveDisciplina} onClose={() => setModal(null)} />
       </Modal>
       <Modal open={modal === "add" || modal === "edit"} onClose={() => { setModal(null); setEditingItem(null); }} title={modal === "edit" ? "Editar Atividade" : (novoTipo === "evento" ? "Novo Evento" : "Nova Avaliação")}>
         <ItemForm item={editingItem} onSave={handleSave} onClose={() => { setModal(null); setEditingItem(null); }} disciplines={disciplines} tipoInicial={novoTipo} />
