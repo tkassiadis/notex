@@ -80,6 +80,10 @@ export interface DisciplinaStats {
   mediaPratica: number | null;
   pesoParteTeorica: number;            // % da parte teórica no total
   pesoPartePratica: number;            // % da parte prática no total
+  // Pontos na média final (escala 0–10), para o gráfico do Dashboard
+  pontosConquistados: number;          // já garantidos na média
+  pontosAConquistar: number;           // máximo ainda possível (recuperável)
+  pontosPerdidos: number;              // perdido em avaliações feitas + impossível
   statusCounts: {
     "Não iniciado": number;
     "Em andamento": number;

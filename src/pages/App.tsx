@@ -367,11 +367,13 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
   const avgGrade = useMemo(() => { const graded = stats.filter(s => s.mediaAtual != null); return graded.length ? (graded.reduce((a, s) => a + (s.mediaAtual ?? 0), 0) / graded.length).toFixed(2) : null; }, [stats]);
   const statusPieData = useMemo(() => [{ name: "Finalizado", value: totalFinished, color: "#10b981" }, { name: "Em andamento", value: totalInProgress, color: "#06b6d4" }, { name: "Pendente", value: totalPending, color: "#64748b" }].filter(d => d.value > 0), [totalFinished, totalInProgress, totalPending]);
   const statusPieTotal = useMemo(() => statusPieData.reduce((a, d) => a + d.value, 0), [statusPieData]);
-  const pontosChartData = useMemo(() => stats.map(s => {
-    let obtidos = 0, futuros = 0;
-    s.items.forEach(r => { const contrib = r.pesoAvaliacao * r.pesoInstrumento * 10; if (r.pontuacao != null && r.pontuacaoMaxima) { obtidos += ((r.pontuacao / r.pontuacaoMaxima)) * contrib; } else { futuros += contrib; } });
-    return { fullName: s.disciplina, obtidos: Math.round(obtidos * 100) / 100, futuros: Math.round(futuros * 100) / 100, color: s.color };
-  }), [stats]);
+  const pontosChartData = useMemo(() => stats.map(s => ({
+    fullName: s.disciplina,
+    conquistados: s.pontosConquistados,
+    aConquistar: s.pontosAConquistar,
+    perdidos: s.pontosPerdidos,
+    color: s.color,
+  })), [stats]);
   const pendingByStatus = useMemo(() => {
     const groups = [
       { status: "Não iniciado", color: "#64748b" },
@@ -395,29 +397,38 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
       )}
       <div className="rounded-2xl p-4 border border-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
         <ChartHeader label="Pontos na Média Final (de 10)" chartKey="grades" expandedChart={expandedChart} setExpandedChart={setExpandedChart} />
-        <p className="text-xs text-slate-600 mb-4 -mt-2">Pontos já conquistados + pontos ainda disponíveis</p>
+        <p className="text-xs text-slate-600 mb-4 -mt-2">Conquistados · a conquistar · perdidos</p>
         <div className="flex flex-col gap-3">
           {pontosChartData.map((d, i) => {
-            const s = stats[i]; const obtPct = (d.obtidos / 10) * 100; const futPct = (d.futuros / 10) * 100;
+            const s = stats[i];
+            const conqPct = (d.conquistados / 10) * 100;
+            const aConqPct = (d.aConquistar / 10) * 100;
+            const perdPct = (d.perdidos / 10) * 100;
             return (
               <div key={d.fullName}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs text-slate-300 font-semibold truncate pr-2" style={{ maxWidth: "55%" }}>{d.fullName}</span>
-                  <div className="flex items-center gap-2 shrink-0"><span className="text-xs font-bold" style={{ color: s.color }}>{d.obtidos.toFixed(2)}</span><span className="text-xs text-slate-600">+</span><span className="text-xs text-slate-400">{d.futuros.toFixed(2)}</span></div>
+                  <span className="text-xs text-slate-300 font-semibold truncate pr-2" style={{ maxWidth: "50%" }}>{d.fullName}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs font-bold" style={{ color: s.color }}>{d.conquistados.toFixed(1)}</span>
+                    <span className="text-xs text-slate-600">+</span>
+                    <span className="text-xs text-slate-400">{d.aConquistar.toFixed(1)}</span>
+                    {d.perdidos > 0.05 && <><span className="text-xs text-slate-600">·</span><span className="text-xs text-red-400">−{d.perdidos.toFixed(1)}</span></>}
+                  </div>
                 </div>
                 <div className="relative w-full rounded-lg overflow-hidden flex" style={{ height: 22, background: "rgba(255,255,255,0.05)" }}>
-                  {obtPct > 0 && <div className="flex items-center justify-end pr-1.5" style={{ width: `${obtPct}%`, background: s.color, minWidth: 2, transition: "width 0.6s ease" }}>{obtPct > 12 && <span style={{ fontSize: 10, color: "#fff", fontWeight: 700 }}>{d.obtidos.toFixed(1)}</span>}</div>}
-                  {obtPct > 0 && futPct > 0 && <div style={{ width: 2, background: "#0a0f1a", flexShrink: 0 }} />}
-                  {futPct > 0 && <div className="flex items-center pl-1.5" style={{ width: `${futPct}%`, background: "rgba(255,255,255,0.12)", minWidth: 2 }}>{futPct > 12 && <span style={{ fontSize: 10, color: "#94a3b8" }}>{d.futuros.toFixed(1)}</span>}</div>}
+                  {conqPct > 0 && <div className="flex items-center justify-end pr-1.5" style={{ width: `${conqPct}%`, background: s.color, minWidth: 2, transition: "width 0.6s ease" }}>{conqPct > 12 && <span style={{ fontSize: 10, color: "#fff", fontWeight: 700 }}>{d.conquistados.toFixed(1)}</span>}</div>}
+                  {aConqPct > 0 && <div className="flex items-center pl-1.5" style={{ width: `${aConqPct}%`, background: "rgba(255,255,255,0.12)", minWidth: 2 }}>{aConqPct > 12 && <span style={{ fontSize: 10, color: "#94a3b8" }}>{d.aConquistar.toFixed(1)}</span>}</div>}
+                  {perdPct > 0 && <div className="flex items-center justify-center" style={{ width: `${perdPct}%`, background: "rgba(239,68,68,0.35)", minWidth: 2 }}>{perdPct > 12 && <span style={{ fontSize: 10, color: "#fca5a5" }}>{d.perdidos.toFixed(1)}</span>}</div>}
                 </div>
                 {i === pontosChartData.length - 1 && <div className="flex justify-between mt-1.5">{[0,1,2,3,4,5,6,7,8,9,10].map(n => <span key={n} style={{ color: n === meta ? "#f59e0b" : "#475569", fontSize: 9, fontWeight: n === meta ? 700 : 400 }}>{n}</span>)}</div>}
               </div>
             );
           })}
         </div>
-        <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/5">
-          <div className="flex items-center gap-1.5"><div className="w-10 h-3 rounded-sm" style={{ background: "linear-gradient(90deg,#6366f1,#8b5cf6)" }} /><span className="text-xs text-slate-400">Conquistados</span></div>
-          <div className="flex items-center gap-1.5"><div className="w-10 h-3 rounded-sm" style={{ background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.1)" }} /><span className="text-xs text-slate-400">Disponíveis</span></div>
+        <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/5 flex-wrap">
+          <div className="flex items-center gap-1.5"><div className="w-8 h-3 rounded-sm" style={{ background: "linear-gradient(90deg,#6366f1,#8b5cf6)" }} /><span className="text-xs text-slate-400">Conquistados</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-8 h-3 rounded-sm" style={{ background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.1)" }} /><span className="text-xs text-slate-400">A conquistar</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-8 h-3 rounded-sm" style={{ background: "rgba(239,68,68,0.35)" }} /><span className="text-xs text-slate-400">Perdidos</span></div>
           <div className="flex items-center gap-1.5 ml-auto"><div className="w-1 h-3" style={{ background: "#f59e0b" }} /><span className="text-xs text-amber-400">{meta} = meta</span></div>
         </div>
         {expandedChart === "grades" && (
@@ -426,8 +437,9 @@ function DashboardTab({ items, stats, meta }: { items: AtividadeEnriquecida[]; s
               <div key={d.fullName}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-slate-300 font-semibold truncate pr-2">{d.fullName}</span>
-                  <div className="flex items-center gap-3 shrink-0"><span className="text-xs text-slate-500">disponível: +{d.futuros.toFixed(2)}</span><span className="text-sm font-bold" style={{ color: d.obtidos >= meta ? "#10b981" : d.obtidos >= meta - 2 ? "#f59e0b" : "#ef4444" }}>{d.obtidos.toFixed(2)}/10</span></div>
+                  <div className="flex items-center gap-3 shrink-0"><span className="text-xs text-slate-500">a conquistar: +{d.aConquistar.toFixed(2)}</span><span className="text-sm font-bold" style={{ color: d.conquistados >= meta ? "#10b981" : d.conquistados >= meta - 2 ? "#f59e0b" : "#ef4444" }}>{d.conquistados.toFixed(2)}/10</span></div>
                 </div>
+                {d.perdidos > 0.05 && <p className="text-xs text-red-400/80">Pontos já não recuperáveis: −{d.perdidos.toFixed(2)}</p>}
                 {s.notaNecessaria != null && s.notaNecessaria > 0 && !s.aprovacaoGarantida && (<p className="text-xs text-slate-500">Precisa de <span className="font-semibold" style={{ color: s.aprovacaoImpossivel ? "#ef4444" : "#f59e0b" }}>{s.aprovacaoImpossivel ? "nota impossível" : s.notaNecessaria.toFixed(2)}</span> nas próximas para fechar {meta}</p>)}
                 {s.aprovacaoGarantida && <p className="text-xs text-emerald-500">✓ Meta {meta} já garantida</p>}
               </div>

@@ -128,6 +128,14 @@ export function getDisciplineStats(
 
     const aprovacaoGarantida  = notaNecessariaRaw !== null && notaNecessariaRaw <= 0;
     const aprovacaoImpossivel = notaMaxima !== null && notaMaxima < meta;
+
+    // ── Pontos na média final (escala 0–10) ──
+    // Conquistados: o que já está garantido na média final.
+    // A conquistar: o máximo ainda obtível nas avaliações restantes (tirar 10).
+    // Perdidos: o que já foi perdido nas avaliações feitas + o que ficou impossível.
+    const pontosConquistados = (mediaAtual != null ? mediaAtual : 0) * pesoConcluido;
+    const pontosAConquistar = pesoRestante * 10;
+    const pontosPerdidos = Math.max(0, 10 - pontosConquistados - pontosAConquistar);
     const notaNecessaria = notaNecessariaRaw != null
       ? Math.round(notaNecessariaRaw * 100) / 100
       : null;
@@ -149,6 +157,9 @@ export function getDisciplineStats(
       mediaPratica,
       pesoParteTeorica,
       pesoPartePratica,
+      pontosConquistados: Math.round(pontosConquistados * 100) / 100,
+      pontosAConquistar: Math.round(pontosAConquistar * 100) / 100,
+      pontosPerdidos: Math.round(pontosPerdidos * 100) / 100,
       statusCounts: {
         "Não iniciado": rows.filter((r) => r.status === "Não iniciado").length,
         "Em andamento": rows.filter((r) => ["Estudo inicial","Estudo médio","Estudo avançado"].includes(r.status)).length,
