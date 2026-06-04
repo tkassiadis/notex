@@ -254,13 +254,13 @@ function ItemForm({ item, onSave, onClose, disciplines, disciplinasFull, tipoIni
             + Nova disciplina
           </button>
         </div>
-        {isEvento && <p className="text-xs text-slate-600 mb-2 px-1">Eventos podem ficar sem disciplina (aparecem em "Geral").</p>}
+        {isEvento && <p className="text-xs text-slate-600 mb-2 px-1">Eventos podem ficar sem disciplina (aparecem em "Eventos Gerais").</p>}
         {discMode === "existing" ? (
           disciplines.length === 0 ? (
             <p className="text-xs text-slate-500 italic px-1">Nenhuma disciplina ainda. <button type="button" className="text-indigo-400 underline" onClick={() => setDiscMode("new")}>Criar nova</button></p>
           ) : (
             <select value={form.disciplina} onChange={e => set("disciplina", e.target.value)} className={`${INPUT_CLS} ${errors.disciplina && !form.disciplina ? errCls : ""}`} style={INPUT_STY}>
-              {isEvento && <option value="">Sem disciplina (Geral)</option>}
+              {isEvento && <option value="">Sem disciplina (Eventos Gerais)</option>}
               {disciplines.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           )

@@ -13,7 +13,7 @@
 // Isso apaga os caches antigos e força o app a carregar o código novo.
 // ============================================================
 
-const CACHE_VERSION = "v10";  // ← incremente a cada release (v2, v3, ...)
+const CACHE_VERSION = "v11";  // ← incremente a cada release (v2, v3, ...)
 
 const SHELL_CACHE = `controle-semestre-shell-${CACHE_VERSION}`;
 const FONT_CACHE  = `controle-semestre-fonts-${CACHE_VERSION}`;
