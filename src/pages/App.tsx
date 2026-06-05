@@ -111,6 +111,24 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+// Campo de data com estilo consistente e botão para limpar/redefinir
+function DateInput({ value, onChange, className, style }: { value: string; onChange: (v: string) => void; className?: string; style?: any }) {
+  return (
+    <div className="flex gap-2 items-center">
+      <input
+        type="date"
+        value={value || ""}
+        onChange={e => onChange(e.target.value)}
+        className={className}
+        style={{ ...style, colorScheme: "dark" }}
+      />
+      {value && (
+        <button type="button" onClick={() => onChange("")} className="px-2.5 py-2 rounded-xl text-xs text-slate-400 border border-white/10 shrink-0 hover:text-white transition" style={{ background: "rgba(255,255,255,0.04)" }} title="Limpar data">✕</button>
+      )}
+    </div>
+  );
+}
+
 function ChartHeader({ label, chartKey, expandedChart, setExpandedChart }: { label: string; chartKey: string; expandedChart: string | null; setExpandedChart: (k: string | null) => void }) {
   return (
     <div className="flex items-center justify-between mb-4">
@@ -181,7 +199,7 @@ function ItemForm({ item, onSave, onClose, disciplines, disciplinasFull, tipoIni
   const [tipo, setTipo] = useState<"avaliacao" | "evento">(item?.tipo === "evento" ? "evento" : (tipoInicial || "avaliacao"));
   const [form, setForm] = useState<any>(() => {
     const base: any = item || { avaliacao: "AP1", instrumento: "", disciplina: disciplines[0] || "", disciplinaId: null, parte: "unica", subdivisao: "", status: "Não iniciado", data: "", pesoAvaliacao: 0.2, pesoInstrumento: 1.0, pontuacaoMaxima: null, pontuacao: null, observacoes: "" };
-    return { ...base, _pa: toStr(base.pesoAvaliacao), _pi: toStr(base.pesoInstrumento), _pm: toStr(base.pontuacaoMaxima), _p: toStr(base.pontuacao) };
+    return { ...base, _pa: toStr(Math.round(base.pesoAvaliacao * 100)), _pi: toStr(Math.round(base.pesoInstrumento * 100)), _pm: toStr(base.pontuacaoMaxima), _p: toStr(base.pontuacao) };
   });
   const [errors, setErrors] = useState<any>({});
   const [saving, setSaving] = useState(false);          // FIX BUG2: trava contra duplo-clique
@@ -207,7 +225,7 @@ function ItemForm({ item, onSave, onClose, disciplines, disciplinasFull, tipoIni
         // Eventos: sem nota, sem peso — não afetam cálculos. Disciplina opcional.
         await onSave({ ...form, tipo: "evento", avaliacao: "Evento", disciplina: disciplinaFinal || "", disciplinaId: discObj?.id ?? null, parte: "unica", pesoAvaliacao: 0, pesoInstrumento: 0, pontuacaoMaxima: null, pontuacao: null });
       } else {
-        await onSave({ ...form, tipo: "avaliacao", disciplina: disciplinaFinal, disciplinaId: discObj?.id ?? null, parte: parteFinal, pesoAvaliacao: parseDecimal(form._pa) ?? 0, pesoInstrumento: parseDecimal(form._pi) ?? 0, pontuacaoMaxima: parseDecimal(form._pm), pontuacao: parseDecimal(form._p) });
+        await onSave({ ...form, tipo: "avaliacao", disciplina: disciplinaFinal, disciplinaId: discObj?.id ?? null, parte: parteFinal, pesoAvaliacao: (parseDecimal(form._pa) ?? 0) / 100, pesoInstrumento: (parseDecimal(form._pi) ?? 0) / 100, pontuacaoMaxima: parseDecimal(form._pm), pontuacao: parseDecimal(form._p) });
       }
     } finally {
       setSaving(false);
@@ -285,12 +303,12 @@ function ItemForm({ item, onSave, onClose, disciplines, disciplinasFull, tipoIni
       ) : (
         <FormField label="Subdivisão (opcional)"><input value={form.subdivisao} onChange={e => set("subdivisao", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: Pneumo e Cardio" /></FormField>
       )}
-      <FormField label="Data"><input type="date" value={form.data} onChange={e => set("data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} /></FormField>
+      <FormField label="Data"><DateInput value={form.data} onChange={v => set("data", v)} className={INPUT_CLS} style={INPUT_STY} /></FormField>
       {!isEvento && (
         <>
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Peso Avaliação (0–1)"><input type="text" inputMode="decimal" value={form._pa} onChange={e => set("_pa", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: 0,3" /></FormField>
-            <FormField label="Peso Instrumento (0–1)"><input type="text" inputMode="decimal" value={form._pi} onChange={e => set("_pi", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: 0,5" /></FormField>
+            <FormField label="Peso da avaliação % (na disciplina)"><input type="text" inputMode="decimal" value={form._pa} onChange={e => set("_pa", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: 40" /></FormField>
+            <FormField label="Peso do instrumento % (na avaliação)"><input type="text" inputMode="decimal" value={form._pi} onChange={e => set("_pi", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: 100" /></FormField>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Pontuação Máxima"><input type="text" inputMode="decimal" value={form._pm} onChange={e => set("_pm", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="Ex: 10" /></FormField>
@@ -987,9 +1005,9 @@ function NovaDisciplinaForm({ onSaveDisciplina, onClose, editDisc, editAvaliacoe
                   <div><label className="text-xs text-slate-500">Avaliação</label><select value={a.tipo} onChange={e => setAv(a._id, "tipo", e.target.value)} className={INPUT_CLS} style={INPUT_STY}>{TIPO_AVALIACAO_LOTE.map(t => <option key={t}>{t}</option>)}</select></div>
                   {subdivisoes.length > 0
                     ? <div><label className="text-xs text-slate-500">Subdivisão</label><select value={a.subdivisao} onChange={e => setAv(a._id, "subdivisao", e.target.value)} className={INPUT_CLS} style={INPUT_STY}><option value="">Nenhuma</option>{subdivisoes.map(s => <option key={s}>{s}</option>)}</select></div>
-                    : <div><label className="text-xs text-slate-500">Data</label><input type="date" value={a.data} onChange={e => setAv(a._id, "data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} /></div>}
+                    : <div><label className="text-xs text-slate-500">Data</label><DateInput value={a.data} onChange={v => setAv(a._id, "data", v)} className={INPUT_CLS} style={INPUT_STY} /></div>}
                 </div>
-                {subdivisoes.length > 0 && <div><label className="text-xs text-slate-500">Data</label><input type="date" value={a.data} onChange={e => setAv(a._id, "data", e.target.value)} className={INPUT_CLS} style={INPUT_STY} /></div>}
+                {subdivisoes.length > 0 && <div><label className="text-xs text-slate-500">Data</label><DateInput value={a.data} onChange={v => setAv(a._id, "data", v)} className={INPUT_CLS} style={INPUT_STY} /></div>}
                 <div className="grid grid-cols-2 gap-2">
                   <div><label className="text-xs text-slate-500">Peso da avaliação %</label><input type="text" inputMode="decimal" value={a.peso} onChange={e => setAv(a._id, "peso", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="ex: 40" /></div>
                   <div><label className="text-xs text-slate-500">Peso do instrumento %</label><input type="text" inputMode="decimal" value={a.pesoInstrumento} onChange={e => setAv(a._id, "pesoInstrumento", e.target.value)} className={INPUT_CLS} style={INPUT_STY} placeholder="ex: 100" /></div>

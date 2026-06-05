@@ -56,15 +56,52 @@ export function getDisciplineStats(
     const ehMista = dMeta?.tipo === "Mista";
 
     // ── Métricas de um conjunto de avaliações (uma parte ou a disciplina toda) ──
-    // Retorna soma ponderada, peso usado (com nota), pesos concluído/restante.
+    // Modelo de DOIS NÍVEIS:
+    //  • Instrumentos são agrupados pela "avaliação" (AP1, AP2...).
+    //  • Dentro de cada avaliação, cada instrumento contribui com nota × pesoInstrumento.
+    //    Instrumentos faltando contam como ZERO (não re-normaliza).
+    //  • Cada avaliação contribui para a disciplina com seu pesoAvaliacao.
+    // Retorna: ws (soma ponderada das notas já obtidas), wUsed (peso de avaliação com
+    // alguma nota), wConcl/wRest em termos de peso de avaliação × fração concluída.
     function metricasDe(avs: AtividadeEnriquecida[]) {
-      let ws = 0, wUsed = 0, wConcl = 0, wRest = 0;
+      // Agrupa por nome de avaliação
+      const grupos: Record<string, AtividadeEnriquecida[]> = {};
       avs.forEach((r) => {
-        const w = r.pesoAvaliacao * r.pesoInstrumento;
-        const nota = calcNota(r.pontuacao, r.pontuacaoMaxima);
-        if (nota != null) { ws += nota * w; wUsed += w; wConcl += w; }
-        else { wRest += w; }
+        const chave = r.avaliacao || "—";
+        if (!grupos[chave]) grupos[chave] = [];
+        grupos[chave].push(r);
       });
+
+      let ws = 0, wUsed = 0, wConcl = 0, wRest = 0;
+      Object.values(grupos).forEach((insts) => {
+        // Peso da avaliação no total da disciplina (todos os instrumentos do grupo
+        // compartilham o mesmo peso de avaliação; usamos o primeiro informado).
+        const pesoAval = insts[0].pesoAvaliacao;
+        if (pesoAval <= 0) return;
+
+        // Nota da avaliação = Σ (nota_instrumento × pesoInstrumento).
+        // Instrumento sem nota contribui 0. Não re-normaliza (faltando = zero).
+        let notaAval = 0;       // 0..10 (assumindo instrumentos somando 100%)
+        let fracComNota = 0;    // fração da avaliação já avaliada (Σ pesoInstrumento com nota)
+        insts.forEach((r) => {
+          const nota = calcNota(r.pontuacao, r.pontuacaoMaxima);
+          if (nota != null) { notaAval += nota * r.pesoInstrumento; fracComNota += r.pesoInstrumento; }
+        });
+
+        // A parte concluída desta avaliação (em peso de avaliação) é proporcional
+        // à fração de instrumentos já avaliados.
+        const concl = pesoAval * fracComNota;
+        const rest  = pesoAval * (1 - fracComNota);
+        wConcl += concl;
+        wRest  += Math.max(0, rest);
+
+        if (fracComNota > 0) {
+          // contribui com a nota já obtida (sobre a fração avaliada)
+          ws += notaAval * pesoAval;       // notaAval já está ponderado pelos pesoInstrumento
+          wUsed += pesoAval * fracComNota;
+        }
+      });
+
       const media = wUsed > 0 ? ws / wUsed : null;
       return { ws, wUsed, wConcl, wRest, media };
     }
