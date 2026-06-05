@@ -941,7 +941,18 @@ function NovaDisciplinaForm({ onSaveDisciplina, onClose, editDisc, editAvaliacoe
   const addSub = () => { const s = novaSub.trim(); if (s && !subdivisoes.includes(s)) { setSubdivisoes(p => [...p, s]); setNovaSub(""); } };
   const removeSub = (s: string) => { setSubdivisoes(p => p.filter(x => x !== s)); setAvaliacoes(a => a.map(x => x.subdivisao === s ? { ...x, subdivisao: "" } : x)); };
 
-  const somaParte = (parte: ParteDisciplina) => avaliacoes.filter(a => a.parte === parte).reduce((acc, a) => acc + (parseDecimal(a.peso) ?? 0), 0);
+  const somaParte = (parte: ParteDisciplina) => {
+    // Soma o peso de cada AVALIAÇÃO distinta (AP1, AP2...) uma única vez.
+    // Instrumentos da mesma avaliação repetem o peso da avaliação, então não somamos linha a linha.
+    const porAvaliacao: Record<string, number> = {};
+    avaliacoes.filter(a => a.parte === parte).forEach(a => {
+      const chave = (a.tipo || "—").trim();
+      const peso = parseDecimal(a.peso) ?? 0;
+      // usa o maior peso informado para a avaliação (deve ser o mesmo entre instrumentos)
+      porAvaliacao[chave] = Math.max(porAvaliacao[chave] ?? 0, peso);
+    });
+    return Object.values(porAvaliacao).reduce((acc, p) => acc + p, 0);
+  };
   const barColor = (soma: number, tem: boolean) => !tem ? "#64748b" : Math.abs(soma - 100) < 0.01 ? "#10b981" : soma > 100 ? "#ef4444" : "#f59e0b";
 
   const handleSave = async () => {
